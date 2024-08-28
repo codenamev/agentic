@@ -4,7 +4,7 @@ RSpec.describe Agentic::LlmConfig do
   describe "#initialize" do
     it "sets default values for attributes" do
       config = described_class.new
-      expect(config.model).to eq "gpt-4o"
+      expect(config.model).to eq "gpt-4o-2024-08-06"
     end
 
     it "allows setting model in initializer" do
