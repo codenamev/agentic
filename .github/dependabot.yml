@@ -5,8 +5,14 @@ updates:
     schedule:
       interval: "weekly"
     labels: ["loop:deps"]
+    groups:
+      bundler:
+        patterns: ["*"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     labels: ["loop:deps"]
+    groups:
+      github-actions:
+        patterns: ["*"]
