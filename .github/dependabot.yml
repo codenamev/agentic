@@ -1,18 +1,26 @@
+# Dependabot: grouped monthly batch, 7-day cooldown, security updates stay immediate.
+# Per https://github.blog/security/supply-chain-security/tame-dependabot-group-your-updates-slow-the-cadence-keep-security-fast/
 version: 2
 updates:
   - package-ecosystem: "bundler"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels: ["loop:deps"]
+    cooldown:
+      default-days: 7
     groups:
-      bundler:
+      monthly-batch:
+        applies-to: version-updates
         patterns: ["*"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels: ["loop:deps"]
+    cooldown:
+      default-days: 7
     groups:
-      github-actions:
+      monthly-batch:
+        applies-to: version-updates
         patterns: ["*"]
