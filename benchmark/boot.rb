@@ -35,6 +35,6 @@ def measure(label, code)
   system(RbConfig.ruby, "-I", LIB, "-e", script) || abort("scenario failed: #{label}")
 end
 
-puts format("%-36s %12s %20s %15s", "scenario", "wall", "allocations", "loaded files")
+puts "scenario                                     wall          allocations    loaded files"
 puts "-" * 88
 SCENARIOS.each { |label, code| measure(label, code) }

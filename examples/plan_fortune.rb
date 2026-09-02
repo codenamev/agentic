@@ -42,7 +42,7 @@ fortunes << if roots >= 4
   "You begin in many places at once, child of parallelism - " \
   "your mornings are wide (#{roots} roots)."
 else
-  "You begin cautiously (#{roots} root#{(roots == 1) ? "" : "s"}) - " \
+  "You begin cautiously (#{roots} root#{"s" unless roots == 1}) - " \
   "the fates smile on those who fan out."
 end
 

@@ -41,7 +41,7 @@ CONFIGURED = {
 
 puts "CAPACITY PLANNER (target: #{TARGET_PER_MINUTE} tickets/min at peak)"
 puts
-puts format("  %-16s %-10s %-10s %-22s %s", "task", "p50", "p95", "lanes needed (p50/p95)", "")
+puts "  task             p50        p95        lanes needed (p50/p95) "
 
 lambda_per_sec = TARGET_PER_MINUTE / 60.0
 total_p95_lanes = 0
@@ -64,7 +64,7 @@ puts
 
 # --- check the plan against every configured limit -------------------------------
 puts "  the plan vs. what's actually configured:"
-puts format("    %-36s %-8s %s", "limit", "have", "verdict at #{TARGET_PER_MINUTE}/min")
+puts "    limit                                have     verdict at #{TARGET_PER_MINUTE}/min"
 verdicts = {
   "orchestrator concurrency_limit" => (total_p95_lanes <= 8) ? "holds" : "BINDS FIRST - raise to #{total_p95_lanes}",
   "provider quota (windowed)" => (TARGET_PER_MINUTE <= 90) ? "holds" : "BINDS - 90/min < #{TARGET_PER_MINUTE}/min arrivals, queues grow without bound",

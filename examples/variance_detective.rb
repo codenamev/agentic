@@ -48,7 +48,7 @@ state = Agentic::ExecutionJournal.replay(path: JOURNAL)
 
 puts "VARIANCE DETECTIVE (#{RUNS} journaled runs, seed #{seed})"
 puts
-puts format("  %-24s %7s %7s %7s %9s", "task", "p50", "p90", "worst", "p90/p50")
+puts "  task                         p50     p90   worst   p90/p50"
 
 suspects = []
 PROFILE.each_key do |name|

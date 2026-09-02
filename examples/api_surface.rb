@@ -30,7 +30,7 @@ corpus = Dir[File.join(__dir__, "*.rb")].reject { |f| f.end_with?("api_surface.r
 
 puts "API SURFACE CENSUS (#{CORE.size} core classes vs #{Dir[File.join(__dir__, "*.rb")].size - 1} example programs)"
 puts
-puts format("  %-26s %-9s %-11s %s", "class", "surface", "exercised", "accidental (public, unused by any example)")
+puts "  class                      surface   exercised   accidental (public, unused by any example)"
 
 total_surface = 0
 total_exercised = 0

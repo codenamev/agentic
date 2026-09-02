@@ -117,8 +117,8 @@ Before any release:
    # Run full test suite
    bundle exec rake
    
-   # Check for security issues
-   bundle audit
+   # Check for security issues (gem install bundler-audit -v '~> 0.9')
+   bundler-audit check --update
    ```
 
 2. **Create Release PR**

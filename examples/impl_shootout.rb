@@ -74,7 +74,7 @@ results = {"v1 regex" => run_candidate(V1), "v2 weights" => run_candidate(V2)}
 
 puts "IMPLEMENTATION SHOOTOUT: #{SPEC.name} (#{EVALS.size} eval cases)"
 puts
-puts format("  %-46s %-12s %s", "case (expected)", "v1 regex", "v2 weights")
+puts "  case (expected)                                v1 regex     v2 weights"
 EVALS.each_with_index do |eval_case, index|
   marks = results.values.map { |r|
     r[index][:correct] ? "pass" : "FAIL(#{r[index][:got]})"

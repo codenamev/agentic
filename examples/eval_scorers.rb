@@ -46,7 +46,7 @@ SCORERS = {
 }.freeze
 PASS_AT = 0.99 # judge scorers may grade partially; everything else is 0-or-1
 
-NAMES_A_PROBLEM = ->(summary) { (summary.include?("general inquiry") ? 0.0 : 0.6) }
+NAMES_A_PROBLEM = ->(summary) { summary.include?("general inquiry") ? 0.0 : 0.6 }
 NAMES_AN_ACTION = ->(summary) { summary.match?(/request|update/) ? 0.4 : 0.0 }
 RUBRIC = ->(summary) { NAMES_A_PROBLEM.call(summary) + NAMES_AN_ACTION.call(summary) }
 

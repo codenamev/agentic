@@ -76,7 +76,7 @@ def merge(base, ours, theirs)
     elsif in_base && in_ours && in_theirs
       [key, base_edges[key]] # unchanged everywhere
     elsif !in_base
-      [key, (our_edges[key] || their_edges[key])] # added by one branch
+      [key, our_edges[key] || their_edges[key]] # added by one branch
     else
       [key, (in_ours ? our_edges[key] : their_edges[key])] # kept by one, removed by other -> keep? no: removed wins
     end
@@ -94,7 +94,7 @@ puts
 puts "  cleanly merged:"
 puts "    tasks: #{merged["tasks"].join(", ")}"
 (merged["edges"] - BASE["edges"]).each do |e|
-  puts "    + #{e["from"]} -> #{e["to"]}#{e["label"] ? " (#{e["label"]})" : ""}"
+  puts "    + #{e["from"]} -> #{e["to"]}#{" (#{e["label"]})" if e["label"]}"
 end
 puts
 if conflicts.any?

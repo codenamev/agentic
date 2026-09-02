@@ -35,7 +35,7 @@ end
 failures = []
 puts "BACKOFF CONFORMANCE (seed #{seed}, #{DRAWS} draws per combination)"
 puts
-puts format("  %-13s %-8s %-22s %-22s %s", "strategy", "jitter", "expected", "observed", "verdict")
+puts "  strategy      jitter   expected               observed               verdict"
 
 %i[constant linear exponential].each do |strategy|
   [false, true, :full].each do |jitter|
@@ -57,7 +57,7 @@ puts format("  %-13s %-8s %-22s %-22s %s", "strategy", "jitter", "expected", "ob
 
     low, high = expected_bounds(strategy, jitter, RETRY_COUNT)
     epsilon = 1e-9
-    in_bounds = observed.all? { |d| d >= low - epsilon && d <= high + epsilon }
+    in_bounds = observed.all? { |d| d.between?(low - epsilon, high + epsilon) }
     spans = jitter == false || (observed.max - observed.min) > (high - low) * 0.8
 
     verdict = if !in_bounds

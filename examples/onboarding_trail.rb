@@ -54,7 +54,7 @@ puts
 trail.each_with_index do |room, index|
   unmet = files[room][:mentions] - trail[0..index]
   puts format("  %d. %-26s %4d lines   %s", index + 1, room, files[room][:lines], ROOM_NOTES[room])
-  puts format("     %s", "(mentions #{files[room][:mentions].join(", ")})") if files[room][:mentions].any?
+  puts "     (mentions #{files[room][:mentions].join(", ")})" if files[room][:mentions].any?
   puts "     WARNING: tour visits this before #{unmet.join(", ")}" if unmet.any?
 end
 

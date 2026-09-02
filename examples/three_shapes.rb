@@ -50,7 +50,7 @@ end
 
 puts "THREE SHAPES: six tasks x #{(UNIT * 1000).round}ms, concurrency 4"
 puts
-puts format("  %-8s %-10s %-8s %-9s %s", "shape", "wall", "depth", "max fan-in", "the trade")
+puts "  shape    wall       depth    max fan-in the trade"
 
 TRADES = {
   chain: "trivially debuggable; pays full serial price",

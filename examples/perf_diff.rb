@@ -67,7 +67,7 @@ path_after = critical_path_names(graph, after)
 
 puts "PERF DIFF (noise floor #{NOISE_MS}ms)"
 puts
-puts format("  %-18s %9s %9s %9s  %s", "task", "before", "after", "delta", "")
+puts "  task                  before     after     delta  "
 regressions = []
 BASELINE.each_key do |name|
   delta_ms = (after[name] - before[name]) * 1000

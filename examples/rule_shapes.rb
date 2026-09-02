@@ -69,7 +69,7 @@ end
 
 puts "RULE SHAPES: one policy, three representations, four consumers"
 puts
-puts format("  %-22s %-10s %-10s %-12s %s", "shape", "enforced", "explains", "generatable", "projects")
+puts "  shape                  enforced   explains   generatable  projects"
 SHAPES.each do |name, rules|
   spec = spec_with(rules)
   puts format("  %-22s %-10s %-10s %-12s %s",

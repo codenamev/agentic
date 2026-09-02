@@ -1,0 +1,13 @@
+# Advisories deliberately accepted, with the reason and the exit condition.
+# CI reads this file by default (`bundler-audit check --update`), so an entry
+# here is applied by the same command a contributor runs locally, and removing
+# one shows up in a diff.
+#
+# Add entries only for an advisory that cannot be fixed by an upgrade, e.g.:
+#
+#   ignore:
+#     # CVE-2026-00000 — rexml, reached only via rubocop (dev-only, never in a
+#     # consumer's resolution). Upstream fix pending; revisit after standard 2.x.
+#     - CVE-2026-00000
+#
+ignore: []

@@ -216,9 +216,13 @@ module Agentic
     #   task was added with its own agent:, or when a block is given.
     # @yield [task] Optional agent factory - called per task, returns an agent
     # @return [PlanExecutionResult] The structured execution results
+    # @raise [ArgumentError] If any task has no way to obtain an agent, if a
+    #   pending task depends on an id that names no task in the plan, or if
+    #   pending tasks form a dependency cycle
     def execute_plan(agent_provider = nil, &agent_factory)
       agent_provider ||= agent_factory
       ensure_agents_resolvable!(agent_provider)
+      ensure_dependencies_satisfiable!
 
       @reactor = Sync do |reactor|
         @barrier = Async::Barrier.new
@@ -431,7 +435,17 @@ module Agentic
     # portion rather than silently dropped.
     # @return [Array<String>] Task ids, dependencies before dependents
     def topological_order
-      remaining_deps = @dependencies.transform_values(&:dup)
+      sorted = kahn_order
+      sorted + (@dependencies.keys - sorted)
+    end
+
+    # The schedulable portion of a dependency graph: every task Kahn's
+    # algorithm can order. Tasks in (or downstream of) a dependency cycle
+    # are absent.
+    # @param dependencies [Hash{String=>Array<String>}] Task id => dep ids
+    # @return [Array<String>] Task ids, dependencies before dependents
+    def kahn_order(dependencies = @dependencies)
+      remaining_deps = dependencies.transform_values(&:dup)
       order = []
       ready = remaining_deps.select { |_, deps| deps.empty? }.keys
 
@@ -445,7 +459,53 @@ module Agentic
         end
       end
 
-      order + (@dependencies.keys - order)
+      order
+    end
+
+    # Fails fast when the graph, as declared when execute_plan is called,
+    # cannot finish: a pending task depending on an id that names no task
+    # in the plan, or a dependency cycle among pending tasks. Either would
+    # otherwise strand tasks in :pending and hand back a result that
+    # reports :in_progress from a method that has already returned.
+    #
+    # Scoped to pending tasks so a plan pruned with cancel_task still runs
+    # its remainder (a pending task wired to a canceled or failed
+    # dependency is not a structural error - it simply never runs, the
+    # same as a dependency that fails mid-flight). Checked at execute
+    # time, not add time, so tasks may be added in any order (add_task
+    # allows forward references; rewire_task alone validates eagerly).
+    # This validates a snapshot: tasks added mid-run by hooks or agents
+    # are not re-checked.
+    # @return [void]
+    # @raise [ArgumentError] If a pending task's dependency is unknown,
+    #   or pending tasks form a cycle
+    def ensure_dependencies_satisfiable!
+      pending = @execution_state[:pending]
+      offenders = @dependencies.filter_map { |task_id, deps|
+        next unless pending.include?(task_id)
+
+        unknown = deps.reject { |dep| @tasks.key?(dep) }
+        [task_id, unknown] unless unknown.empty?
+      }
+      if offenders.any?
+        known = @tasks.keys + @tasks.values.map(&:description)
+        details = offenders.map { |task_id, unknown|
+          diagnosed = unknown.map { |dep| "#{dep}#{Suggestions.hint(dep, known)}" }
+          "#{@tasks[task_id].description} depends on unknown task(s) #{diagnosed.join(", ")}"
+        }
+        raise ArgumentError, details.join("; ")
+      end
+
+      # Cycle check on the pending subgraph only: edges to non-pending
+      # tasks can't be part of a schedulable cycle
+      subgraph = @dependencies.filter_map { |task_id, deps|
+        [task_id, deps.select { |dep| pending.include?(dep) }] if pending.include?(task_id)
+      }.to_h
+      unrunnable = subgraph.keys - kahn_order(subgraph)
+      return if unrunnable.empty?
+
+      names = unrunnable.map { |id| @tasks[id].description }
+      raise ArgumentError, "dependency cycle leaves task(s) unrunnable: #{names.join(", ")}"
     end
 
     # Schedules a task for execution using the semaphore to limit concurrency
@@ -601,10 +661,7 @@ module Agentic
 
       # For each dependent task, check if all dependencies are satisfied
       dependent_tasks.each do |task_id|
-        @dependencies[task_id]
-        all_deps_satisfied = all_dependencies_met?(task_id)
-
-        if all_deps_satisfied
+        if all_dependencies_met?(task_id)
           schedule_task(task_id, agent_provider, semaphore, barrier)
         end
       end
@@ -726,11 +783,6 @@ module Agentic
       @results[task_id] = TaskExecutionResult.failure(failure)
     end
 
-    # Transitions a task from one state to another
-    # @param task_id [String] ID of the task to transition
-    # @param from: [Symbol] Current state of the task
-    # @param to: [Symbol] Target state for the task
-    # @return [void]
     # Durations are deltas of the monotonic clock, not wall time -
     # wall clocks step under NTP, and every baseline downstream
     # (journal durations, percentiles) would eat that noise
@@ -738,6 +790,11 @@ module Agentic
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
+    # Transitions a task from one state to another
+    # @param task_id [String] ID of the task to transition
+    # @param from [Symbol] Current state of the task
+    # @param to [Symbol] Target state for the task
+    # @return [void]
     def transition_task_state(task_id, from:, to:)
       return unless @execution_state[from].include?(task_id)
 

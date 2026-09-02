@@ -27,6 +27,16 @@ Thank you for your interest in contributing to Agentic! This guide will help you
 - **Testing**: Use RSpec for tests, aim for >90% coverage on new code
 - **Documentation**: Use YARD comments for all public APIs
 - **Commit Messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/)
+- **Dependencies**: If a change moves `Gemfile.lock` or the gemspec, check it for known advisories first:
+
+  ```bash
+  gem install bundler-audit -v '~> 0.9'
+  bundler-audit check --update
+  ```
+
+  If your shell can't find `bundler-audit` after installing it, your gem bindir isn't on `PATH`; `gem exec bundler-audit check --update` works regardless on RubyGems 3.5+.
+
+  CI runs the same command on those changes and again every Monday. If it flags an advisory in a gem your change did not touch, say so in the PR rather than bundling an unrelated upgrade into it. An advisory that genuinely cannot be fixed by an upgrade goes in `.bundler-audit.yml` with a reason and an exit condition, where CI honors it and a reviewer can see it.
 
 ### Before You Code
 

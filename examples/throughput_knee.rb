@@ -62,7 +62,7 @@ end
 
 puts "THROUGHPUT KNEE (#{JOBS} jobs per ceiling; upstream parallelism undisclosed)"
 puts
-puts format("  %-9s %-12s %-14s %-14s %s", "ceiling", "jobs/sec", "service p50", "total p50", "")
+puts "  ceiling   jobs/sec     service p50    total p50      "
 rows.each do |row|
   bar = "#" * (row[:throughput] / 10).round
   puts format("  %-9d %8.1f     %8.1fms     %8.1fms   %s",

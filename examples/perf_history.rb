@@ -61,7 +61,7 @@ NOISE_MS = 15
 
 puts "PERF HISTORY (baseline: #{BASELINE_JOURNAL.split("/").last}, noise floor #{NOISE_MS}ms)"
 puts
-puts format("  %-20s %10s %10s %9s", "task", "last release", "this one", "delta")
+puts "  task                 last release   this one     delta"
 regressions = []
 current.each do |name, duration|
   recorded = baseline[name]

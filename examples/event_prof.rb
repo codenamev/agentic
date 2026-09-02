@@ -48,7 +48,7 @@ task_seconds = samples.sum { |_, d| d }
 
 puts "EVENT PROF (task-seconds by tag; wall clock #{(wall * 1000).round}ms, 3 lanes)"
 puts
-puts format("  %-8s %-10s %-8s %-8s %s", "tag", "seconds", "share", "tasks", "worst offender")
+puts "  tag      seconds    share    tasks    worst offender"
 by_tag.sort_by { |_, v| -v[:seconds] }.each do |tag, stats|
   share = stats[:seconds] / task_seconds * 100
   puts format("  %-8s %6.0fms   %5.1f%%   %-8d %s (%.0fms)  %s",

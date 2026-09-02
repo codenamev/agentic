@@ -70,7 +70,7 @@ def run_scenario(name, ticks, journal_path, &upstream)
   breaker = Breaker.new
 
   puts "  #{name}"
-  puts format("    %-6s %-11s %s", "tick", "breaker", "what happened")
+  puts "    tick   breaker     what happened"
 
   ticks.times do |tick|
     unless breaker.allow?

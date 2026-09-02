@@ -75,7 +75,7 @@ end
 
 puts "THE RACTOR SHAREABILITY AUDIT (frozen is not the same promise)"
 puts
-puts format("  %-24s %-8s %-11s %s", "value", "frozen?", "shareable?", "after make_shareable")
+puts "  value                    frozen?  shareable?  after make_shareable"
 SUBJECTS.each do |name, value|
   frozen, shareable, after = verdict(value)
   puts format("  %-24s %-8s %-11s %s", name, frozen, shareable, after)

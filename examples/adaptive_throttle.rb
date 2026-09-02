@@ -35,7 +35,7 @@ congestion_threshold = BASE_LATENCY * 1.6
 
 puts "ADAPTIVE THROTTLE (upstream capacity: undisclosed; AIMD will find it)"
 puts
-puts format("  %-7s %-8s %-10s %-24s %s", "batch", "target", "p50", "", "action")
+puts "  batch   target   p50                                 action"
 
 Sync do
   BATCHES.times do |batch|

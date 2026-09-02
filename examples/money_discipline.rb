@@ -78,7 +78,7 @@ ledger = result.task_result(ledger_task.id).output
 
 puts "MONEY DISCIPLINE (same invoice, two arithmetics)"
 puts
-puts format("  %-12s %-28s %s", "", "float version", "ledger version")
+puts "               float version                ledger version"
 puts format("  %-12s %-28.14f %s", "subtotal", floats[:subtotal], Money.new(ledger[:subtotal_cents]))
 puts format("  %-12s %-28.14f %s", "tax", floats[:tax], Money.new(ledger[:tax_cents]))
 puts format("  %-12s %-28.14f %s", "total", floats[:total], Money.new(ledger[:total_cents]))

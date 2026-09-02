@@ -71,7 +71,7 @@ puts "THE ONE-FILE API (#{QUOTES.name} v#{QUOTES.version})"
 puts
 REQUESTS.each do |method, path, body|
   status, response = handle(method, path, body)
-  puts "  #{method} #{path}#{body ? " #{JSON.generate(body)}" : ""}"
+  puts "  #{method} #{path}#{" #{JSON.generate(body)}" if body}"
   rendered = JSON.generate(response)
   rendered = "#{rendered[0, 100]}... (#{rendered.size} bytes)" if rendered.size > 110
   puts "    -> #{status} #{rendered}"

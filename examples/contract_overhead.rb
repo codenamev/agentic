@@ -35,7 +35,7 @@ end
 
 puts "CONTRACT OVERHEAD BENCH (#{ITERATIONS} validations per row)"
 puts
-puts format("  %-26s %-12s %s", "contract", "per call", "share of an #{LLM_CALL_MS.to_i}ms LLM call")
+puts "  contract                   per call     share of an #{LLM_CALL_MS.to_i}ms LLM call"
 
 rows = [
   ["3 keys, no rules", spec_with(keys: 3, relations: 0), {field_0: 1, field_1: 2, field_2: 3}],

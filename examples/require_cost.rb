@@ -51,7 +51,7 @@ TARGETS = {
 
 puts "REQUIRE COST REPORT (each row measured in a pristine child process)"
 puts
-puts format("  %-28s %10s %14s %10s", "require", "RSS", "objects", "time")
+puts "  require                             RSS        objects       time"
 rows = TARGETS.transform_values { |target, touch| cost_of(target, touch || "") }
 rows.each do |name, cost|
   puts format("  %-28s %8.1fMB %14d %8.0fms  %s",

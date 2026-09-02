@@ -48,7 +48,7 @@ PROBES.each do |name, lines|
   report = damage.map { |d| "line #{d[:line]}: #{d[:reason]}" }.join(", ")
   puts format("  %-30s %s", name,
     if ok
-      "recovered (#{detail} salvaged#{damage.any? ? "; damage reported: #{report}" : ""})"
+      "recovered (#{detail} salvaged#{"; damage reported: #{report}" if damage.any?})"
     else
       "CRASHED: #{detail}"
     end)

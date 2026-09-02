@@ -208,6 +208,80 @@ RSpec.describe Agentic::PlanOrchestrator do
       expect(result.task_result(task_b.id)).to be_nil
       expect(orchestrator.execution_state[:pending]).to include(task_b.id)
     end
+
+    context "when the plan can never finish" do
+      it "raises on a dependency that names no task in the plan" do
+        orchestrator.add_task(task_a)
+        orchestrator.add_task(task_b, ["#{task_a.id}x"])
+
+        expect {
+          orchestrator.execute_plan(agent_provider)
+        }.to raise_error(ArgumentError, /Task B depends on unknown task\(s\) #{Regexp.escape(task_a.id)}x \(did you mean #{Regexp.escape(task_a.id)}\?\)/)
+      end
+
+      it "names every task with unknown dependencies, not just the first" do
+        orchestrator.add_task(task_a, ["ghost-1"])
+        orchestrator.add_task(task_b, ["ghost-2"])
+
+        expect {
+          orchestrator.execute_plan(agent_provider)
+        }.to raise_error(ArgumentError, /Task A depends on unknown task\(s\) ghost-1; Task B depends on unknown task\(s\) ghost-2/)
+      end
+
+      it "raises on a dependency cycle, naming the unrunnable tasks" do
+        orchestrator.add_task(task_a, [task_b])
+        orchestrator.add_task(task_b, [task_a])
+        orchestrator.add_task(task_c, [task_b])
+
+        expect {
+          orchestrator.execute_plan(agent_provider)
+        }.to raise_error(ArgumentError, /dependency cycle leaves task\(s\) unrunnable: Task A, Task B, Task C/)
+      end
+
+      it "raises on a task that depends on itself" do
+        orchestrator.add_task(task_a, [task_a])
+
+        expect {
+          orchestrator.execute_plan(agent_provider)
+        }.to raise_error(ArgumentError, /dependency cycle leaves task\(s\) unrunnable: Task A/)
+      end
+
+      it "still allows dependencies declared before their task is added" do
+        orchestrator.add_task(task_b, [task_a])
+        orchestrator.add_task(task_a)
+
+        result = orchestrator.execute_plan(agent_provider)
+
+        expect(result.status).to eq(:completed)
+        expect(orchestrator.execution_state[:completed]).to include(task_a.id, task_b.id)
+      end
+
+      it "still allows needs:-declared dependencies before their task is added" do
+        orchestrator.add_task(task_b, needs: {prior: task_a})
+        orchestrator.add_task(task_a)
+
+        result = orchestrator.execute_plan(agent_provider)
+
+        expect(result.status).to eq(:completed)
+        expect(orchestrator.execution_state[:completed]).to include(task_a.id, task_b.id)
+      end
+
+      it "still runs the remainder of a plan pruned with cancel_task" do
+        # A cycle whose member was canceled before execution is inert,
+        # not a structural error: the survivor strands (as with any
+        # failed dependency) and unrelated tasks run to completion
+        orchestrator.add_task(task_a, [task_b])
+        orchestrator.add_task(task_b, [task_a])
+        orchestrator.add_task(task_c)
+        orchestrator.cancel_task(task_a.id)
+
+        result = orchestrator.execute_plan(agent_provider)
+
+        expect(result.status).to eq(:canceled)
+        expect(orchestrator.execution_state[:completed]).to include(task_c.id)
+        expect(orchestrator.execution_state[:pending]).to include(task_b.id)
+      end
+    end
   end
 
   describe "private methods" do

@@ -34,7 +34,7 @@ burns = Hash.new(0)
 
 puts "TRAFFIC DIAL: rolling out v2, #{FULL_CAPACITY} lanes of traffic total"
 puts
-puts format("  %-8s %-8s %-10s %s", "stage", "lanes", "p50", "verdict")
+puts "  stage    lanes    p50        verdict"
 
 Sync do
   stage_index = 0

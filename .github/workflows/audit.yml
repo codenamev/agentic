@@ -1,0 +1,73 @@
+name: Advisories
+
+# Separate from main.yml on purpose. Folded into the Ruby workflow, a red
+# Monday would be ambiguous between "an advisory landed" and "a spec broke".
+# It is still not a one-cause signal: fetching the advisory database and
+# evaluating the lockfile are split into two named steps below precisely so
+# the step name says which of the two failed.
+#
+# Do NOT add this job to branch protection as a required status check while
+# the `paths:` filter below is in place. A path-filtered workflow that does
+# not trigger reports no status at all, so every PR that leaves the
+# dependency files alone would sit on "Expected - Waiting for status" and
+# never merge. Drop the filter or add a skip-shim job first.
+on:
+  # Only PRs that actually move the resolution. An advisory published on a
+  # Tuesday should not turn a README PR red.
+  pull_request:
+    paths:
+      - 'Gemfile'
+      - 'Gemfile.lock'
+      - '*.gemspec'
+      - '.github/workflows/audit.yml'
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'Gemfile'
+      - 'Gemfile.lock'
+      - '*.gemspec'
+      - '.github/workflows/audit.yml'
+
+  # Catches advisories published against a lockfile nobody touched, which is
+  # the case no push- or PR-triggered run can see.
+  schedule:
+    - cron: '0 6 * * 1'
+
+  # For running the sweep on demand. Note that GitHub disables scheduled
+  # workflows after 60 days of repository inactivity, and only the "Enable
+  # workflow" control in the Actions tab brings one back.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    name: bundler-audit
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        # Latest stable, not the matrix pin: bundler-audit reads Gemfile.lock
+        # as text and never loads the gem, so the interpreter is irrelevant
+        # here and a second hardcoded version would only drift.
+        ruby-version: 'ruby'
+    - name: Install bundler-audit
+      # Deliberately outside the bundle. The scanner has no business inside
+      # the lockfile it scans, and this keeps the dev bundle's resolution
+      # independent of the scanner's. Keep the version bound in step with
+      # CONTRIBUTING.md and MAINTAINING.md.
+      run: gem install bundler-audit --no-document -v '~> 0.9'
+    - name: Fetch the advisory database
+      # Split from the check so a transient clone failure is legible as
+      # itself rather than as "a gem is vulnerable". One retry, because the
+      # scheduled run is unattended 52 weeks a year.
+      run: bundler-audit update || (sleep 15 && bundler-audit update)
+    - name: Check Gemfile.lock against ruby-advisory-db
+      run: bundler-audit check

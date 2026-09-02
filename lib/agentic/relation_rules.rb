@@ -51,7 +51,7 @@ module Agentic
       undeclared = fields.reject { |field| inputs.key?(field) }
       if undeclared.any?
         raise ArgumentError, "rule :#{id} (#{relation}) references undeclared " \
-          "input#{(undeclared.size == 1) ? "" : "s"} #{undeclared.map(&:inspect).join(", ")}"
+          "input#{"s" unless undeclared.size == 1} #{undeclared.map(&:inspect).join(", ")}"
       end
 
       if relation == :sum_lte
