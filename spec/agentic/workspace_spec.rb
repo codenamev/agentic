@@ -195,6 +195,65 @@ RSpec.describe Agentic::Workspace do
 
       expect { workspace.add_artifact(malicious_artifact) }.to raise_error(SecurityError, /path traversal/)
     end
+
+    context "when the workspace contains symlinks" do
+      let(:outside_dir) { Dir.mktmpdir("workspace_spec_outside") }
+
+      after do
+        FileUtils.rm_rf(outside_dir) if Dir.exist?(outside_dir)
+      end
+
+      it "refuses to write through a symlinked file" do
+        victim = File.join(outside_dir, "victim.rb")
+        File.write(victim, "original")
+        File.symlink(victim, File.join(temp_dir, "user.rb"))
+
+        expect { workspace.add_artifact(user_artifact) }.to raise_error(SecurityError, /is a symlink/)
+        expect(File.read(victim)).to eq("original")
+        expect(workspace.artifact_count).to eq(0)
+      end
+
+      it "refuses to write under a directory that symlinks outside the workspace" do
+        File.symlink(outside_dir, File.join(temp_dir, "lib"))
+        artifact = Agentic::Artifact.new(name: "lib/user.rb", type: :ruby_class, content: "class User; end")
+
+        expect { workspace.add_artifact(artifact) }.to raise_error(SecurityError, /outside the workspace/)
+        expect(File.exist?(File.join(outside_dir, "user.rb"))).to be false
+        expect(workspace.artifact_count).to eq(0)
+      end
+
+      it "refuses when the escaping symlink is above a directory that does not exist yet" do
+        File.symlink(outside_dir, File.join(temp_dir, "lib"))
+        artifact = Agentic::Artifact.new(name: "lib/models/user.rb", type: :ruby_class, content: "class User; end")
+
+        expect { workspace.add_artifact(artifact) }.to raise_error(SecurityError, /outside the workspace/)
+        expect(Dir.exist?(File.join(outside_dir, "models"))).to be false
+      end
+
+      it "allows a symlinked directory that resolves inside the workspace" do
+        real_dir = File.join(temp_dir, "real")
+        FileUtils.mkdir_p(real_dir)
+        File.symlink(real_dir, File.join(temp_dir, "alias"))
+        artifact = Agentic::Artifact.new(name: "alias/user.rb", type: :ruby_class, content: "class User; end")
+
+        workspace.add_artifact(artifact)
+
+        expect(File.read(File.join(real_dir, "user.rb"))).to eq("class User; end")
+      end
+
+      it "still writes when the workspace root itself is a symlink" do
+        real_root = Dir.mktmpdir("workspace_spec_real_root")
+        link_root = File.join(outside_dir, "linked_workspace")
+        File.symlink(real_root, link_root)
+        linked_workspace = described_class.new(link_root)
+
+        linked_workspace.add_artifact(user_artifact)
+
+        expect(File.exist?(File.join(real_root, "user.rb"))).to be true
+      ensure
+        FileUtils.rm_rf(real_root) if real_root && Dir.exist?(real_root)
+      end
+    end
   end
 
   describe "#find_artifact" do

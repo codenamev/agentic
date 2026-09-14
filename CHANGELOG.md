@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Security
+- `Workspace#add_artifact` now refuses artifacts whose on-disk destination is a symlink or resolves outside the workspace through a symlinked parent directory. The lexical `..`/absolute-path checks are unchanged; this closes the gap where a persistent workspace pointed at a real project directory could carry an LLM-named artifact outside it.
+
 ## [0.3.0] - 2025-08-18
 
 ### Added

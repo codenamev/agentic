@@ -336,6 +336,38 @@ module Agentic
           raise SecurityError, "Invalid artifact reference: path traversal in '#{ref}'"
         end
       end
+
+      # Filesystem containment (symlinks)
+      validate_write_target(artifact.name)
+    end
+
+    # Ensure the artifact's on-disk destination stays inside the workspace
+    #
+    # The lexical checks above reject `..` and absolute names, but a symlink
+    # already present in the workspace (a persistent workspace is usually a
+    # real project directory) can still carry a write outside it: either the
+    # target file is itself a symlink, or one of its parent directories is.
+    # Resolve the nearest existing ancestor and compare real paths.
+    #
+    # @param name [String] Validated artifact name (relative path)
+    # @raise [SecurityError] If the destination is a symlink or resolves outside the workspace
+    def validate_write_target(name)
+      full_path = File.join(@path, name)
+
+      if File.symlink?(full_path)
+        raise SecurityError, "Invalid artifact name: '#{name}' is a symlink"
+      end
+
+      FileUtils.mkdir_p(@path) unless Dir.exist?(@path)
+      root = File.realpath(@path)
+
+      ancestor = File.dirname(full_path)
+      ancestor = File.dirname(ancestor) until Dir.exist?(ancestor)
+      real_ancestor = File.realpath(ancestor)
+
+      unless real_ancestor == root || real_ancestor.start_with?(root + File::SEPARATOR)
+        raise SecurityError, "Invalid artifact name: '#{name}' resolves outside the workspace"
+      end
     end
 
     # Write artifact to filesystem
