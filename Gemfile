@@ -23,4 +23,5 @@ gem "webmock"
 gem "timecop"
 gem "simplecov", require: false
 gem "memory_profiler"
+gem "benchmark" # bundled gem since Ruby 3.5; not loadable by default on 4.0
 gem "rgl", "~> 0.6"
