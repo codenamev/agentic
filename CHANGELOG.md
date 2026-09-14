@@ -3,6 +3,7 @@
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
+- `EventDispatcher` integration slow-observer spec gets the same monotonic-clock + looser-bound treatment
 
 ## [0.3.0] - 2025-08-18
 

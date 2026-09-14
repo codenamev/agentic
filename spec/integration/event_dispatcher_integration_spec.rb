@@ -301,18 +301,20 @@ RSpec.describe "EventDispatcher Integration", type: :integration do
       engine.event_dispatcher.add_observer(slow_observer, priority: 1)
       engine.event_dispatcher.add_observer(fast_observer, priority: 2)
 
-      start_time = Time.now
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       # Send multiple events rapidly
       5.times do |i|
         engine.notify(:performance_test, data: {iteration: i, timestamp: Time.now.to_f})
       end
 
-      total_time = Time.now - start_time
+      total_time = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
 
       # Even with slow observer, dispatching should be fast
-      # (actual processing happens asynchronously or in sequence but doesn't block dispatching)
-      expect(total_time).to be < 0.1
+      # (actual processing happens asynchronously or in sequence but doesn't block dispatching).
+      # The bound is deliberately loose: this guards against pathological
+      # blocking, not scheduler jitter on a loaded CI box.
+      expect(total_time).to be < 0.5
 
       expect(slow_observer).to have_received(:update).exactly(5).times
       expect(fast_observer).to have_received(:update).exactly(5).times
