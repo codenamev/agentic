@@ -31,7 +31,8 @@ module Agentic
         in_progress: Set.new,
         completed: Set.new,
         failed: Set.new,
-        canceled: Set.new
+        canceled: Set.new,
+        skipped: Set.new
       }
       @concurrency_limit = concurrency_limit
       @async_tasks = {}
@@ -685,6 +686,39 @@ module Agentic
       else
         # Apply general failure policy
         Agentic.logger.error("Task #{task.id} failed: #{failure.message}")
+      end
+
+      # Whichever branch ran, the failure is terminal if the task is still
+      # in :failed (a retry would have moved it back to :pending). Its
+      # dependents can never become eligible, so record that instead of
+      # leaving them stranded in :pending with no execution history
+      skip_dependents_of(task.id) if @execution_state[:failed].include?(task.id)
+    end
+
+    # Moves every pending task downstream of a terminally failed task to
+    # :skipped and records a result naming the dependency that failed.
+    # Transitive: a task whose only path to eligibility ran through a
+    # skipped task is skipped too. Distinct from :canceled - canceled means
+    # someone chose, skipped means the graph decided.
+    # @param dep_id [String] ID of the failed (or skipped) task
+    # @return [void]
+    def skip_dependents_of(dep_id)
+      dependents = @dependencies.select do |task_id, deps|
+        deps.include?(dep_id) && @execution_state[:pending].include?(task_id)
+      end.keys
+
+      dependents.each do |task_id|
+        transition_task_state(task_id, from: :pending, to: :skipped)
+        @results[task_id] = TaskExecutionResult.skipped(
+          TaskFailure.new(
+            message: "Skipped: dependency #{dep_id} did not complete",
+            type: "DependencyFailed",
+            context: {dependency_id: dep_id},
+            retryable: false
+          )
+        )
+        Agentic.logger.info("Task #{task_id} skipped: dependency #{dep_id} did not complete")
+        skip_dependents_of(task_id)
       end
     end
 
