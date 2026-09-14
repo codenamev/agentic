@@ -89,6 +89,12 @@ module Agentic
       @results.count { |_, result| result.failed? }
     end
 
+    # Gets the number of tasks skipped because a dependency failed
+    # @return [Integer] The number of skipped tasks
+    def skipped_tasks_count
+      @results.count { |_, result| result.skipped? }
+    end
+
     # Gets the successful task results
     # @return [Hash<String, TaskExecutionResult>] The successful task results
     def successful_task_results
@@ -99,6 +105,12 @@ module Agentic
     # @return [Hash<String, TaskExecutionResult>] The failed task results
     def failed_task_results
       @results.select { |_, result| result.failed? }
+    end
+
+    # Gets the results of tasks skipped because a dependency failed
+    # @return [Hash<String, TaskExecutionResult>] The skipped task results
+    def skipped_task_results
+      @results.select { |_, result| result.skipped? }
     end
 
     # Returns a hash representation of the plan execution result

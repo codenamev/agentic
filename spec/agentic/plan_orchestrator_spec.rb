@@ -205,8 +205,119 @@ RSpec.describe Agentic::PlanOrchestrator do
 
       expect(result.status).to eq(:partial_failure)
       expect(result.task_result(task_a.id).status).to eq(:failed)
-      expect(result.task_result(task_b.id)).to be_nil
-      expect(orchestrator.execution_state[:pending]).to include(task_b.id)
+      expect(result.task_result(task_b.id).status).to eq(:skipped)
+      expect(orchestrator.execution_state[:pending]).not_to include(task_b.id)
+      expect(orchestrator.execution_state[:skipped]).to include(task_b.id)
+    end
+
+    context "when a dependency fails permanently" do
+      let(:failing_agent_provider) do
+        provider = TestAgentProvider.new
+        agent = MockAgent.new
+        agent.set_failure_mode(true)
+        allow(provider).to receive(:get_agent_for_task).and_return(agent)
+        provider
+      end
+
+      let(:task_c) do
+        Agentic::Task.new(
+          description: "Task C",
+          agent_spec: {"instructions" => "You are a test agent"}
+        )
+      end
+
+      it "records a skip result naming the failed dependency" do
+        orchestrator.add_task(task_a)
+        orchestrator.add_task(task_b, [task_a.id])
+
+        result = orchestrator.execute_plan(failing_agent_provider)
+        skip = result.task_result(task_b.id)
+
+        expect(skip).to be_skipped
+        expect(skip).not_to be_failed
+        expect(skip.failure.type).to eq("DependencyFailed")
+        expect(skip.failure.context[:dependency_id]).to eq(task_a.id)
+        expect(skip.failure.message).to include(task_a.id)
+      end
+
+      it "skips transitively through the graph" do
+        orchestrator.add_task(task_a)
+        orchestrator.add_task(task_b, [task_a.id])
+        orchestrator.add_task(task_c, [task_b.id])
+
+        result = orchestrator.execute_plan(failing_agent_provider)
+
+        expect(result.task_result(task_b.id).failure.context[:dependency_id]).to eq(task_a.id)
+        expect(result.task_result(task_c.id).failure.context[:dependency_id]).to eq(task_b.id)
+        expect(orchestrator.execution_state[:skipped]).to contain_exactly(task_b.id, task_c.id)
+        expect(orchestrator.execution_state[:pending]).to be_empty
+        expect(result.skipped_tasks_count).to eq(2)
+        expect(result.skipped_task_results.keys).to contain_exactly(task_b.id, task_c.id)
+        expect(result.failed_tasks_count).to eq(1)
+      end
+
+      it "keeps the overall status at :partial_failure" do
+        orchestrator.add_task(task_a)
+        orchestrator.add_task(task_b, [task_a.id])
+
+        result = orchestrator.execute_plan(failing_agent_provider)
+
+        expect(result.status).to eq(:partial_failure)
+        expect(orchestrator.overall_status).to eq(:partial_failure)
+      end
+
+      it "only skips once retries are exhausted" do
+        retrying = described_class.new(
+          plan_id: plan_id,
+          retry_policy: {max_retries: 2, retryable_errors: ["StandardError"], backoff_strategy: :none}
+        )
+        retrying.add_task(task_a)
+        retrying.add_task(task_b, [task_a.id])
+
+        result = retrying.execute_plan(failing_agent_provider)
+
+        expect(task_a.retry_count).to eq(2)
+        expect(result.task_result(task_a.id)).to be_failed
+        expect(result.task_result(task_b.id)).to be_skipped
+        expect(retrying.execution_state[:skipped]).to contain_exactly(task_b.id)
+      end
+
+      it "does not skip a task that runs on a failure to completion because a retry succeeded" do
+        attempts = 0
+        flaky = MockAgent.new
+        allow(flaky).to receive(:execute) do
+          attempts += 1
+          raise StandardError, "flaky" if attempts == 1
+          {"result" => "ok"}
+        end
+        provider = TestAgentProvider.new
+        allow(provider).to receive(:get_agent_for_task).and_return(flaky)
+        retrying = described_class.new(
+          plan_id: plan_id,
+          retry_policy: {max_retries: 1, retryable_errors: ["StandardError"], backoff_strategy: :none}
+        )
+        retrying.add_task(task_a)
+        retrying.add_task(task_b, [task_a.id])
+
+        result = retrying.execute_plan(provider)
+
+        expect(result.status).to eq(:completed)
+        expect(result.task_result(task_b.id)).to be_successful
+        expect(retrying.execution_state[:skipped]).to be_empty
+      end
+
+      it "round-trips a skipped result through to_h and from_hash" do
+        orchestrator.add_task(task_a)
+        orchestrator.add_task(task_b, [task_a.id])
+
+        result = orchestrator.execute_plan(failing_agent_provider)
+        restored = Agentic::PlanExecutionResult.from_hash(result.to_h)
+        skip = restored.task_result(task_b.id)
+
+        expect(skip).to be_skipped
+        expect(skip.failure.type).to eq("DependencyFailed")
+        expect(restored.skipped_tasks_count).to eq(1)
+      end
     end
 
     context "when the plan can never finish" do

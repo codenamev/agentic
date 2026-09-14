@@ -3,13 +3,13 @@
 module Agentic
   # Value object representing the execution result of a task
   class TaskExecutionResult
-    # @return [Symbol] The status of the task execution (:completed, :failed, :canceled)
+    # @return [Symbol] The status of the task execution (:completed, :failed, :canceled, :skipped)
     attr_reader :status
 
     # @return [Hash, nil] The output produced by the task (only if successful)
     attr_reader :output
 
-    # @return [TaskFailure, nil] The failure details (only if failed)
+    # @return [TaskFailure, nil] The failure details (if failed, or why the task was skipped)
     attr_reader :failure
 
     # @param status [Symbol] The status of the task execution
@@ -39,6 +39,14 @@ module Agentic
     # @return [TaskExecutionResult] A canceled execution result
     def self.canceled
       new(status: :canceled)
+    end
+
+    # Creates a skipped execution result - the task never ran because a
+    # dependency failed. The failure names that dependency.
+    # @param failure [TaskFailure] Why the task was skipped
+    # @return [TaskExecutionResult] A skipped execution result
+    def self.skipped(failure)
+      new(status: :skipped, failure: failure)
     end
 
     # Creates a task execution result from a hash
@@ -75,6 +83,12 @@ module Agentic
     # @return [Boolean] True if canceled, false otherwise
     def canceled?
       @status == :canceled
+    end
+
+    # Checks if the task was skipped because a dependency failed
+    # @return [Boolean] True if skipped, false otherwise
+    def skipped?
+      @status == :skipped
     end
 
     # Returns a hash representation of the execution result
