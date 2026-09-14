@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Changed
+- Bound the six previously unconstrained runtime dependencies in the gemspec: `ruby-openai ">= 7.1", "< 9"` (7.x and 8.x both verified against the suite), and `dry-schema ~> 1.13`, `zeitwerk ~> 2.6`, `ostruct ~> 0.6`, `logger ~> 1.6`, `cgi ~> 0.4` at their locked minors. Adding constraints where none existed is semver-visible: ship this as a minor bump. Closes #16.
+- Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
+
 ## [0.3.0] - 2025-08-18
 
 ### Added

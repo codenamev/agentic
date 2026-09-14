@@ -3,12 +3,12 @@ PATH
   specs:
     agentic (0.2.0)
       async (~> 2.0)
-      cgi
-      dry-schema
-      logger
-      ostruct
+      cgi (~> 0.4)
+      dry-schema (~> 1.13)
+      logger (~> 1.6)
+      ostruct (~> 0.6)
       pastel (~> 0.8)
-      ruby-openai
+      ruby-openai (>= 7.1, < 9)
       thor (~> 1.2)
       tty-box (~> 0.7)
       tty-cursor (~> 0.7)
@@ -16,7 +16,7 @@ PATH
       tty-screen (~> 0.8)
       tty-spinner (~> 0.9)
       tty-table (~> 0.12)
-      zeitwerk
+      zeitwerk (~> 2.6)
 
 GEM
   remote: https://rubygems.org/
@@ -73,8 +73,8 @@ GEM
     faraday (2.11.0)
       faraday-net_http (>= 2.0, < 3.4)
       logger
-    faraday-multipart (1.0.4)
-      multipart-post (~> 2)
+    faraday-multipart (1.2.0)
+      multipart-post (~> 2.0)
     faraday-net_http (3.3.0)
       net-http
     fiber-annotation (0.2.0)
@@ -140,7 +140,7 @@ GEM
     rubocop-performance (1.19.1)
       rubocop (>= 1.7.0, < 2.0)
       rubocop-ast (>= 0.4.0)
-    ruby-openai (7.1.0)
+    ruby-openai (8.3.0)
       event_stream_parser (>= 0.3.0, < 2.0.0)
       faraday (>= 1)
       faraday-multipart (>= 1)
