@@ -203,14 +203,49 @@ RSpec.describe Agentic::Workspace do
         FileUtils.rm_rf(outside_dir) if Dir.exist?(outside_dir)
       end
 
-      it "refuses to write through a symlinked file" do
+      it "refuses to write through a file symlinked outside the workspace" do
         victim = File.join(outside_dir, "victim.rb")
         File.write(victim, "original")
         File.symlink(victim, File.join(temp_dir, "user.rb"))
 
-        expect { workspace.add_artifact(user_artifact) }.to raise_error(SecurityError, /is a symlink/)
+        expect { workspace.add_artifact(user_artifact) }.to raise_error(SecurityError, /symlink outside the workspace/)
         expect(File.read(victim)).to eq("original")
         expect(workspace.artifact_count).to eq(0)
+      end
+
+      it "refuses a dangling symlinked file" do
+        File.symlink(File.join(outside_dir, "gone.rb"), File.join(temp_dir, "user.rb"))
+
+        expect { workspace.add_artifact(user_artifact) }.to raise_error(SecurityError, /dangling symlink/)
+        expect(workspace.artifact_count).to eq(0)
+      end
+
+      it "refuses to write under a dangling symlinked directory" do
+        File.symlink(File.join(outside_dir, "gone"), File.join(temp_dir, "lib"))
+        artifact = Agentic::Artifact.new(name: "lib/user.rb", type: :ruby_class, content: "class User; end")
+
+        expect { workspace.add_artifact(artifact) }.to raise_error(SecurityError, /dangling symlink/)
+        expect(workspace.artifact_count).to eq(0)
+      end
+
+      it "writes through a symlinked file that resolves inside the workspace" do
+        FileUtils.mkdir_p(File.join(temp_dir, "docs"))
+        real_file = File.join(temp_dir, "docs", "user.rb")
+        File.write(real_file, "original")
+        File.symlink(real_file, File.join(temp_dir, "user.rb"))
+
+        workspace.add_artifact(user_artifact)
+
+        expect(File.read(real_file)).to eq(user_artifact.content)
+      end
+
+      it "writes again after cleanup removed the workspace root" do
+        workspace.cleanup
+        expect(Dir.exist?(temp_dir)).to be false
+
+        workspace.add_artifact(user_artifact)
+
+        expect(File.exist?(File.join(temp_dir, "user.rb"))).to be true
       end
 
       it "refuses to write under a directory that symlinks outside the workspace" do

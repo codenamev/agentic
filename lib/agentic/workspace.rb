@@ -347,27 +347,48 @@ module Agentic
     # already present in the workspace (a persistent workspace is usually a
     # real project directory) can still carry a write outside it: either the
     # target file is itself a symlink, or one of its parent directories is.
-    # Resolve the nearest existing ancestor and compare real paths.
+    # Both must resolve to a real path under the workspace's real path;
+    # symlinks that stay inside the workspace keep working.
     #
     # @param name [String] Validated artifact name (relative path)
-    # @raise [SecurityError] If the destination is a symlink or resolves outside the workspace
+    # @raise [SecurityError] If the destination resolves outside the workspace
     def validate_write_target(name)
       full_path = File.join(@path, name)
+      root = File.realpath(existing_ancestor(@path, name))
 
       if File.symlink?(full_path)
-        raise SecurityError, "Invalid artifact name: '#{name}' is a symlink"
+        target = begin
+          File.realpath(full_path)
+        rescue Errno::ENOENT
+          raise SecurityError, "Invalid artifact name: '#{name}' is a dangling symlink"
+        end
+
+        unless within?(target, root)
+          raise SecurityError, "Invalid artifact name: '#{name}' is a symlink outside the workspace"
+        end
       end
 
-      FileUtils.mkdir_p(@path) unless Dir.exist?(@path)
-      root = File.realpath(@path)
-
-      ancestor = File.dirname(full_path)
-      ancestor = File.dirname(ancestor) until Dir.exist?(ancestor)
-      real_ancestor = File.realpath(ancestor)
-
-      unless real_ancestor == root || real_ancestor.start_with?(root + File::SEPARATOR)
+      parent = File.realpath(existing_ancestor(File.dirname(full_path), name))
+      unless within?(parent, root)
         raise SecurityError, "Invalid artifact name: '#{name}' resolves outside the workspace"
       end
+    end
+
+    # Walk up from +dir+ to the nearest directory that exists on disk
+    #
+    # @raise [SecurityError] If the walk crosses a dangling symlink
+    def existing_ancestor(dir, name)
+      until Dir.exist?(dir)
+        if File.symlink?(dir)
+          raise SecurityError, "Invalid artifact name: '#{name}' passes through a dangling symlink"
+        end
+        dir = File.dirname(dir)
+      end
+      dir
+    end
+
+    def within?(real_path, root)
+      real_path == root || real_path.start_with?(root + File::SEPARATOR)
     end
 
     # Write artifact to filesystem
