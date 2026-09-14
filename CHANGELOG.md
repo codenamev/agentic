@@ -2,6 +2,7 @@
 
 ### Added
 - Plan format can declare a dependency graph: `TaskDefinition` gains optional `id`, `depends_on` and `needs` (all additive; flat plans serialize and load unchanged), `ExecutionPlan.from_hash` reads plan JSON back, and `ExecutionPlan#validate!` rejects duplicate ids, dangling references and cycles before a plan reaches the orchestrator
+- `TaskPlanner` asks the LLM for the dependency graph: every planned task now carries an `id`, a `depends_on` list and `needs` wiring (sent as `{name, task}` pairs because strict structured output cannot express a free-form object), which land on the `TaskDefinition` graph fields. Malformed edges are dropped with a warning; a graph that fails `ExecutionPlan#validate!` is kept for inspection and logged rather than silently flattened
 
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
