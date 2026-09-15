@@ -228,4 +228,88 @@ RSpec.describe Agentic::CLI do
       }.to raise_error(Thor::Error, /No plan provided/)
     end
   end
+
+  describe "#build_task_graph" do
+    subject(:cli) { described_class.new }
+
+    let(:agent) { Agentic::AgentSpecification.new(name: "Agent", description: "", instructions: "do it") }
+
+    def definition(id, depends_on: [], needs: {})
+      Agentic::TaskDefinition.new(description: "task #{id}", agent: agent, id: id, depends_on: depends_on, needs: needs)
+    end
+
+    it "returns flat plans with no edges" do
+      graph = cli.send(:build_task_graph, [definition(nil), definition(nil)])
+
+      expect(graph.size).to eq(2)
+      graph.each do |task, dependencies, needs|
+        expect(task).to be_a(Agentic::Task)
+        expect(dependencies).to eq([])
+        expect(needs).to eq({})
+      end
+    end
+
+    it "resolves depends_on and needs to the built Task objects" do
+      graph = cli.send(:build_task_graph, [
+        definition("research"),
+        definition("write", depends_on: ["research"], needs: {"findings" => "research"})
+      ])
+
+      research_task = graph[0][0]
+      write_task, dependencies, needs = graph[1]
+
+      expect(write_task.description).to eq("task write")
+      expect(dependencies).to eq([research_task])
+      expect(needs).to eq({"findings" => research_task})
+    end
+
+    it "aligns per-task inputs positionally" do
+      graph = cli.send(:build_task_graph, [definition("a"), definition("b")], inputs: [{"x" => 1}])
+
+      expect(graph[0][0].input).to eq({"x" => 1})
+      expect(graph[1][0].input).to eq({})
+    end
+
+    it "fails fast with the validator's message when the graph cannot run" do
+      expect {
+        cli.send(:build_task_graph, [definition("write", depends_on: ["reserch"])])
+      }.to raise_error(Thor::Error, /Plan cannot be executed: .*unknown task.*reserch/)
+    end
+  end
+
+  describe "#execute with a dependency graph" do
+    let(:orchestrator) { instance_double(Agentic::PlanOrchestrator) }
+    let(:result) { double("ExecutionResult", status: :completed, to_h: {}, tasks: {}, execution_time: 1.0, successful?: true) }
+
+    before do
+      allow_any_instance_of(described_class).to receive(:check_api_token!).and_return(true)
+      allow_any_instance_of(described_class).to receive(:load_plan_data).and_return({
+        "tasks" => [
+          {"id" => "t1", "description" => "Research", "agent" => {"name" => "Researcher"}},
+          {"id" => "t2", "description" => "Write", "agent" => {"name" => "Writer"},
+           "depends_on" => ["t1"], "needs" => {"findings" => "t1"}}
+        ]
+      })
+      allow(Agentic::CLI::ExecutionObserver).to receive(:new).and_return(double("ExecutionObserver", lifecycle_hooks: {}))
+      allow(Agentic::PlanOrchestrator).to receive(:new).and_return(orchestrator)
+      allow(orchestrator).to receive(:add_task)
+      allow(orchestrator).to receive(:execute_plan).and_return(result)
+      allow_any_instance_of(described_class).to receive(:format_execution_result).and_return("formatted")
+    end
+
+    it "adds each task with its resolved edges and reports the edge count" do
+      described_class.start(["execute", "--plan=graph.json"])
+
+      expect(orchestrator).to have_received(:add_task).with(
+        an_object_having_attributes(description: "Research"), [], needs: nil, on_failure: :skip_dependents
+      )
+      expect(orchestrator).to have_received(:add_task).with(
+        an_object_having_attributes(description: "Write"),
+        [an_object_having_attributes(description: "Research")],
+        needs: {"findings" => an_object_having_attributes(description: "Research")},
+        on_failure: :skip_dependents
+      )
+      expect(output.string).to include("Total tasks: 2").and include("Dependencies: 1")
+    end
+  end
 end

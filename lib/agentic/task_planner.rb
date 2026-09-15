@@ -50,12 +50,13 @@ module Agentic
       @observer&.phase_started(:analyze_goal, "Breaking down goal into actionable tasks")
 
       system_message = "You are an expert project planner. Your task is to break down complex goals into actionable tasks."
-      user_message = "Goal: #{@goal}\n\nBreak this goal down into a series of tasks. For each task:\n1. Specify the type of agent best suited to complete it.\n2. Include a brief description of the agent\n3. Include a set of instructions that the agent can follow to perform this task."
+      user_message = "Goal: #{@goal}\n\nBreak this goal down into a series of tasks. For each task:\n1. Specify the type of agent best suited to complete it.\n2. Include a brief description of the agent\n3. Include a set of instructions that the agent can follow to perform this task.\n4. Give the task a short, unique snake_case id.\n5. In depends_on, list the ids of tasks that must finish before this one starts. Leave it empty when the task can run on its own; tasks that do not depend on each other run in parallel.\n6. When a task must read a specific earlier task's result, add a needs entry with a name for that input and the id of the task that produces it. The agent will receive the earlier result under that name.\n7. Set on_failure to \"continue\" only when the tasks after this one can still do useful work without its result; otherwise use \"skip_dependents\"."
 
       schema = StructuredOutputs::Schema.new("tasks") do |s|
         s.array :tasks, items: {
           type: "object",
           properties: {
+            id: {type: "string"},
             description: {type: "string"},
             agent: {
               type: "object",
@@ -65,9 +66,23 @@ module Agentic
                 instructions: {type: "string"}
               },
               required: %w[name description instructions]
-            }
+            },
+            depends_on: {type: "array", items: {type: "string"}},
+            needs: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: {type: "string"},
+                  task: {type: "string"}
+                },
+                required: %w[name task],
+                additionalProperties: false
+              }
+            },
+            on_failure: {type: "string", enum: TaskDefinition::ON_FAILURE_POLICIES}
           },
-          required: %w[description agent]
+          required: %w[id description agent depends_on needs on_failure]
         }
       end
 
@@ -107,9 +122,15 @@ module Agentic
               name: agent_data["name"],
               description: agent_data["description"],
               instructions: agent_data["instructions"]
-            )
+            ),
+            id: task_data["id"],
+            depends_on: graph_ids(task_data["depends_on"], index),
+            needs: graph_needs(task_data["needs"], index),
+            on_failure: failure_policy(task_data["on_failure"], index)
           )
         end.compact
+
+        warn_on_invalid_graph
 
         @observer&.phase_completed(:analyze_goal, "#{@tasks.length} tasks identified")
       else
@@ -172,6 +193,71 @@ module Agentic
     end
 
     private
+
+    # Reads a task's on_failure policy, falling back to the default when
+    # the LLM sent something the plan format does not know
+    # @param value [Object] The raw on_failure value from the LLM
+    # @param index [Integer] Position of the task, for log context
+    # @return [String, nil] A known policy, or nil for the default
+    def failure_policy(value, index)
+      return nil if value.nil?
+      return value if TaskDefinition::ON_FAILURE_POLICIES.include?(value)
+
+      Agentic.logger.warn("Ignoring on_failure in task at index #{index}: unknown policy #{value.inspect}")
+      nil
+    end
+
+    # Reads a task's depends_on list, dropping anything that is not a
+    # non-empty string so one malformed edge does not sink the whole plan
+    # @param value [Object] The raw depends_on value from the LLM
+    # @param index [Integer] Position of the task, for log context
+    # @return [Array<String>] Plan-local ids
+    def graph_ids(value, index)
+      return [] if value.nil?
+
+      unless value.is_a?(Array)
+        Agentic.logger.warn("Ignoring depends_on in task at index #{index}: expected Array, got #{value.class}")
+        return []
+      end
+
+      value.select { |dep| dep.is_a?(String) && !dep.empty? }
+    end
+
+    # Converts the LLM's needs list of {name, task} pairs into the
+    # {name => id} hash TaskDefinition stores. Strict structured output
+    # cannot express a free-form object, hence the list on the wire.
+    # @param value [Object] The raw needs value from the LLM
+    # @param index [Integer] Position of the task, for log context
+    # @return [Hash{String=>String}] Named inputs mapped to upstream ids
+    def graph_needs(value, index)
+      return {} if value.nil?
+
+      unless value.is_a?(Array)
+        Agentic.logger.warn("Ignoring needs in task at index #{index}: expected Array, got #{value.class}")
+        return {}
+      end
+
+      value.each_with_object({}) do |entry, needs|
+        name = entry.is_a?(Hash) ? entry["name"] : nil
+        task = entry.is_a?(Hash) ? entry["task"] : nil
+        if name.is_a?(String) && !name.empty? && task.is_a?(String) && !task.empty?
+          needs[name] = task
+        else
+          Agentic.logger.warn("Ignoring malformed needs entry in task at index #{index}: #{entry.inspect}")
+        end
+      end
+    end
+
+    # The LLM may still emit a graph the plan cannot run (a dangling
+    # reference, a cycle). The edges are kept so the plan stays
+    # inspectable and editable, and the problem is logged here so it
+    # is visible before execution refuses the plan.
+    # @return [void]
+    def warn_on_invalid_graph
+      ExecutionPlan.new(@tasks, @expected_answer).validate!
+    rescue ExecutionPlan::InvalidPlanError => e
+      Agentic.logger.warn("Planner produced an invalid dependency graph: #{e.message}")
+    end
 
     # Makes a request to the LLM
     # @param system_message [String] The system message for the LLM
