@@ -624,23 +624,49 @@ module Agentic
       # Create workspace if path provided
       workspace = create_workspace_if_specified
 
-      # Convert ExecutionPlan to tasks
-      tasks = execution_plan.tasks.map do |task_def|
-        Task.new(
+      # Convert ExecutionPlan to tasks, carrying the declared graph along
+      execute_tasks(build_task_graph(execution_plan.tasks, workspace: workspace))
+    end
+
+    # Builds executable tasks from plan definitions and resolves the graph
+    # they declare against the tasks just built. Plan-local ids ("t1")
+    # never reach the orchestrator: it keys on Task#id, so every edge is
+    # handed over as the Task it points at. Flat plans come back with no
+    # edges and run exactly as they did before graph fields existed.
+    # @param definitions [Array<TaskDefinition>] The planned tasks
+    # @param workspace [Workspace, nil] Shared workspace for file-generating tasks
+    # @param inputs [Array<Hash>] Per-task input, positionally aligned with definitions
+    # @return [Array<Array(Task, Array<Task>, Hash{String => Task})>] One
+    #   [task, dependencies, needs] triple per definition, in plan order
+    # @raise [Thor::Error] If the graph cannot be scheduled (dangling ids, cycles)
+    def build_task_graph(definitions, workspace: nil, inputs: [])
+      ExecutionPlan.new(definitions, nil).validate!
+
+      by_id = {}
+      built = definitions.each_with_index.map do |task_def, index|
+        task = Task.new(
           description: task_def.description,
           agent_spec: task_def.agent,
-          input: {},
+          input: inputs[index] || {},
           workspace: workspace
         )
+        by_id[task_def.id] = task if task_def.id
+        [task_def, task]
       end
 
-      # Execute the tasks
-      execute_tasks(tasks)
+      built.map do |task_def, task|
+        dependencies = task_def.depends_on.map { |id| by_id.fetch(id) }
+        needs = task_def.needs.transform_values { |id| by_id.fetch(id) }
+        [task, dependencies, needs]
+      end
+    rescue ExecutionPlan::InvalidPlanError => e
+      raise Thor::Error, "Plan cannot be executed: #{e.message}"
     end
 
     # Shared execution logic for both execute command and immediate execution
-    # @param tasks [Array<Task>] The tasks to execute
-    def execute_tasks(tasks)
+    # @param graph [Array<Array(Task, Array<Task>, Hash{String => Task})>]
+    #   The tasks to execute with their resolved edges (see #build_task_graph)
+    def execute_tasks(graph)
       say UI.colorize("Executing plan...", :green) unless options[:quiet]
 
       # Setup observability adapters for CLI execution
@@ -658,14 +684,17 @@ module Agentic
         lifecycle_hooks: observer.lifecycle_hooks
       )
 
-      # Add tasks to the orchestrator
-      tasks.each do |task|
-        orchestrator.add_task(task)
+      # Add tasks to the orchestrator with their declared edges, so
+      # dependents wait for (and can read) what they depend on
+      graph.each do |task, dependencies, needs|
+        orchestrator.add_task(task, dependencies, needs: needs.empty? ? nil : needs)
       end
 
-      # Show the total number of tasks
+      # Show the total number of tasks (and edges, when the plan has any)
       unless options[:quiet]
-        puts UI.colorize("Total tasks: #{tasks.size}", :blue)
+        edges = graph.sum { |_, dependencies, needs| (dependencies | needs.values).size }
+        puts UI.colorize("Total tasks: #{graph.size}", :blue)
+        puts UI.colorize("Dependencies: #{edges}", :blue) if edges.positive?
         puts
       end
 
@@ -952,24 +981,20 @@ module Agentic
       end
     end
 
-    # Initializes task instances from plan data
+    # Initializes task instances from plan data, resolving any dependency
+    # graph the file declares. Plan files without graph fields (anything
+    # written before ids existed, or by hand) load as flat plans.
+    # @param plan_data [Hash] Parsed plan JSON
+    # @return [Array<Array(Task, Array<Task>, Hash{String => Task})>] See #build_task_graph
     def initialize_tasks(plan_data)
       # Create workspace if path provided
       workspace = create_workspace_if_specified
 
-      tasks = []
+      task_data = Array(plan_data["tasks"])
+      definitions = task_data.map { |data| TaskDefinition.from_hash(data) }
+      inputs = task_data.map { |data| data["input"] || {} }
 
-      plan_data["tasks"].each do |task_data|
-        task = Task.new(
-          description: task_data["description"],
-          agent_spec: task_data["agent"],
-          input: task_data["input"] || {},
-          workspace: workspace
-        )
-        tasks << task
-      end
-
-      tasks
+      build_task_graph(definitions, workspace: workspace, inputs: inputs)
     end
 
     # Outputs execution result based on format options

@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Added
+- Plan format can declare a dependency graph: `TaskDefinition` gains optional `id`, `depends_on` and `needs` (all additive; flat plans serialize and load unchanged), `ExecutionPlan.from_hash` reads plan JSON back, and `ExecutionPlan#validate!` rejects duplicate ids, dangling references and cycles before a plan reaches the orchestrator
+- `TaskPlanner` asks the LLM for the dependency graph: every planned task now carries an `id`, a `depends_on` list and `needs` wiring (sent as `{name, task}` pairs because strict structured output cannot express a free-form object), which land on the `TaskDefinition` graph fields. Malformed edges are dropped with a warning; a graph that fails `ExecutionPlan#validate!` is kept for inspection and logged rather than silently flattened
+- Both CLI execution paths (`agentic plan --execute` and `agentic execute --plan`) now hand the declared graph to the orchestrator: `depends_on` becomes ordering, `needs` becomes named output wiring, and a plan whose graph cannot be scheduled fails fast with the validator's message instead of running as an unordered swarm. Flat plans execute exactly as before
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
