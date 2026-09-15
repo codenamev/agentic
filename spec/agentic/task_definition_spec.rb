@@ -112,3 +112,38 @@ RSpec.describe Agentic::TaskDefinition, "dependency graph fields" do
     end
   end
 end
+
+RSpec.describe Agentic::TaskDefinition, "on_failure policy" do
+  let(:agent) do
+    Agentic::AgentSpecification.new(name: "Writer", description: "Writes", instructions: "Write it")
+  end
+
+  it "defaults to skip_dependents" do
+    task = described_class.new(description: "Write", agent: agent)
+    expect(task.on_failure).to eq("skip_dependents")
+    expect(task.continue_on_failure?).to be(false)
+  end
+
+  it "accepts continue as a string or symbol" do
+    expect(described_class.new(description: "Write", agent: agent, on_failure: "continue").continue_on_failure?).to be(true)
+    expect(described_class.new(description: "Write", agent: agent, on_failure: :continue).on_failure).to eq("continue")
+  end
+
+  it "rejects an unknown policy" do
+    expect {
+      described_class.new(description: "Write", agent: agent, on_failure: "shrug")
+    }.to raise_error(ArgumentError, /skip_dependents, continue/)
+  end
+
+  it "serializes on_failure only when it is not the default" do
+    expect(described_class.new(description: "Write", agent: agent).to_h).not_to have_key("on_failure")
+    expect(described_class.new(description: "Write", agent: agent, on_failure: "continue").to_h["on_failure"]).to eq("continue")
+  end
+
+  it "round-trips through from_hash" do
+    original = described_class.new(description: "Write", agent: agent, id: "write", on_failure: "continue")
+    restored = described_class.from_hash(original.to_h)
+    expect(restored.on_failure).to eq("continue")
+    expect(described_class.from_hash("description" => "Write", "agent" => agent.to_h).on_failure).to eq("skip_dependents")
+  end
+end

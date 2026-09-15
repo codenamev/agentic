@@ -301,12 +301,13 @@ RSpec.describe Agentic::CLI do
       described_class.start(["execute", "--plan=graph.json"])
 
       expect(orchestrator).to have_received(:add_task).with(
-        an_object_having_attributes(description: "Research"), [], needs: nil
+        an_object_having_attributes(description: "Research"), [], needs: nil, on_failure: :skip_dependents
       )
       expect(orchestrator).to have_received(:add_task).with(
         an_object_having_attributes(description: "Write"),
         [an_object_having_attributes(description: "Research")],
-        needs: {"findings" => an_object_having_attributes(description: "Research")}
+        needs: {"findings" => an_object_having_attributes(description: "Research")},
+        on_failure: :skip_dependents
       )
       expect(output.string).to include("Total tasks: 2").and include("Dependencies: 1")
     end

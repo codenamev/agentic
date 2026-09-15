@@ -657,14 +657,14 @@ module Agentic
       built.map do |task_def, task|
         dependencies = task_def.depends_on.map { |id| by_id.fetch(id) }
         needs = task_def.needs.transform_values { |id| by_id.fetch(id) }
-        [task, dependencies, needs]
+        [task, dependencies, needs, task_def.on_failure.to_sym]
       end
     rescue ExecutionPlan::InvalidPlanError => e
       raise Thor::Error, "Plan cannot be executed: #{e.message}"
     end
 
     # Shared execution logic for both execute command and immediate execution
-    # @param graph [Array<Array(Task, Array<Task>, Hash{String => Task})>]
+    # @param graph [Array<Array(Task, Array<Task>, Hash{String => Task}, Symbol)>]
     #   The tasks to execute with their resolved edges (see #build_task_graph)
     def execute_tasks(graph)
       say UI.colorize("Executing plan...", :green) unless options[:quiet]
@@ -686,8 +686,8 @@ module Agentic
 
       # Add tasks to the orchestrator with their declared edges, so
       # dependents wait for (and can read) what they depend on
-      graph.each do |task, dependencies, needs|
-        orchestrator.add_task(task, dependencies, needs: needs.empty? ? nil : needs)
+      graph.each do |task, dependencies, needs, on_failure|
+        orchestrator.add_task(task, dependencies, needs: needs.empty? ? nil : needs, on_failure: on_failure)
       end
 
       # Show the total number of tasks (and edges, when the plan has any)

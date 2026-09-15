@@ -306,6 +306,116 @@ RSpec.describe Agentic::PlanOrchestrator do
         expect(retrying.execution_state[:skipped]).to be_empty
       end
 
+      context "with on_failure: :continue" do
+        it "runs dependents after the tolerated failure and exposes it to them" do
+          orchestrator.add_task(task_a, on_failure: :continue)
+          orchestrator.add_task(task_b, [task_a.id])
+          seen = {}
+          provider = TestAgentProvider.new
+          failing = MockAgent.new
+          failing.set_failure_mode(true)
+          succeeding = MockAgent.new
+          allow(succeeding).to receive(:execute) do
+            seen[:succeeded] = task_b.succeeded?(task_a)
+            seen[:failure] = task_b.failure_of(task_a.id)
+            seen[:output] = task_b.output_of(task_a)
+            {"result" => "ran anyway"}
+          end
+          allow(provider).to receive(:get_agent_for_task) { |task| (task.id == task_a.id) ? failing : succeeding }
+
+          result = orchestrator.execute_plan(provider)
+
+          expect(result.task_result(task_a.id)).to be_failed
+          expect(result.task_result(task_b.id)).to be_successful
+          expect(orchestrator.execution_state[:skipped]).to be_empty
+          expect(seen[:succeeded]).to be(false)
+          expect(seen[:failure]).to be_a(Agentic::TaskFailure)
+          expect(seen[:output]).to be_nil
+        end
+
+        it "keeps the overall status at :partial_failure" do
+          orchestrator.add_task(task_a, on_failure: :continue)
+          orchestrator.add_task(task_b, [task_a.id])
+          provider = TestAgentProvider.new
+          failing = MockAgent.new
+          failing.set_failure_mode(true)
+          allow(provider).to receive(:get_agent_for_task) { |task| (task.id == task_a.id) ? failing : MockAgent.new }
+
+          result = orchestrator.execute_plan(provider)
+
+          expect(result.status).to eq(:partial_failure)
+          expect(result.failed_tasks_count).to eq(1)
+        end
+
+        it "records a named failure on needs" do
+          orchestrator.add_task(task_a, on_failure: :continue)
+          orchestrator.add_task(task_b, needs: {findings: task_a})
+          seen = {}
+          provider = TestAgentProvider.new
+          failing = MockAgent.new
+          failing.set_failure_mode(true)
+          succeeding = MockAgent.new
+          allow(succeeding).to receive(:execute) do
+            seen[:succeeded] = task_b.needs.succeeded?(:findings)
+            seen[:failure] = task_b.needs.failure_of(:findings)
+            {"result" => "ok"}
+          end
+          allow(provider).to receive(:get_agent_for_task) { |task| (task.id == task_a.id) ? failing : succeeding }
+
+          orchestrator.execute_plan(provider)
+
+          expect(seen[:succeeded]).to be(false)
+          expect(seen[:failure]).to be_a(Agentic::TaskFailure)
+        end
+
+        it "still skips past a skip_dependents task that sits between" do
+          orchestrator.add_task(task_a, on_failure: :continue)
+          orchestrator.add_task(task_b, [task_a.id])
+          orchestrator.add_task(task_c, [task_b.id])
+
+          result = orchestrator.execute_plan(failing_agent_provider)
+
+          expect(result.task_result(task_b.id)).to be_failed
+          expect(result.task_result(task_c.id)).to be_skipped
+          expect(result.task_result(task_c.id).failure.context[:dependency_id]).to eq(task_b.id)
+        end
+
+        it "only continues once retries are exhausted" do
+          retrying = described_class.new(
+            plan_id: plan_id,
+            retry_policy: {max_retries: 2, retryable_errors: ["StandardError"], backoff_strategy: :none}
+          )
+          retrying.add_task(task_a, on_failure: :continue)
+          retrying.add_task(task_b, [task_a.id])
+
+          result = retrying.execute_plan(failing_agent_provider)
+
+          expect(task_a.retry_count).to eq(2)
+          expect(result.task_result(task_b.id)).to be_failed
+          expect(retrying.execution_state[:skipped]).to be_empty
+        end
+
+        it "never continues past a failure that requires intervention" do
+          orchestrator.add_task(task_a, on_failure: :continue)
+          orchestrator.add_task(task_b, [task_a.id])
+          provider = TestAgentProvider.new
+          auth_failing = MockAgent.new
+          allow(auth_failing).to receive(:execute).and_raise(StandardError, "authentication failed")
+          allow(orchestrator).to receive(:requires_intervention?).and_return(true)
+          allow(provider).to receive(:get_agent_for_task).and_return(auth_failing)
+
+          result = orchestrator.execute_plan(provider)
+
+          expect(result.task_result(task_a.id)).to be_failed
+          expect(result.task_result(task_b.id)).to be_skipped
+        end
+
+        it "rejects an unknown policy" do
+          expect { orchestrator.add_task(task_a, on_failure: :shrug) }
+            .to raise_error(ArgumentError, /skip_dependents, continue/)
+        end
+      end
+
       it "round-trips a skipped result through to_h and from_hash" do
         orchestrator.add_task(task_a)
         orchestrator.add_task(task_b, [task_a.id])

@@ -50,7 +50,7 @@ module Agentic
       @observer&.phase_started(:analyze_goal, "Breaking down goal into actionable tasks")
 
       system_message = "You are an expert project planner. Your task is to break down complex goals into actionable tasks."
-      user_message = "Goal: #{@goal}\n\nBreak this goal down into a series of tasks. For each task:\n1. Specify the type of agent best suited to complete it.\n2. Include a brief description of the agent\n3. Include a set of instructions that the agent can follow to perform this task.\n4. Give the task a short, unique snake_case id.\n5. In depends_on, list the ids of tasks that must finish before this one starts. Leave it empty when the task can run on its own; tasks that do not depend on each other run in parallel.\n6. When a task must read a specific earlier task's result, add a needs entry with a name for that input and the id of the task that produces it. The agent will receive the earlier result under that name."
+      user_message = "Goal: #{@goal}\n\nBreak this goal down into a series of tasks. For each task:\n1. Specify the type of agent best suited to complete it.\n2. Include a brief description of the agent\n3. Include a set of instructions that the agent can follow to perform this task.\n4. Give the task a short, unique snake_case id.\n5. In depends_on, list the ids of tasks that must finish before this one starts. Leave it empty when the task can run on its own; tasks that do not depend on each other run in parallel.\n6. When a task must read a specific earlier task's result, add a needs entry with a name for that input and the id of the task that produces it. The agent will receive the earlier result under that name.\n7. Set on_failure to \"continue\" only when the tasks after this one can still do useful work without its result; otherwise use \"skip_dependents\"."
 
       schema = StructuredOutputs::Schema.new("tasks") do |s|
         s.array :tasks, items: {
@@ -79,9 +79,10 @@ module Agentic
                 required: %w[name task],
                 additionalProperties: false
               }
-            }
+            },
+            on_failure: {type: "string", enum: TaskDefinition::ON_FAILURE_POLICIES}
           },
-          required: %w[id description agent depends_on needs]
+          required: %w[id description agent depends_on needs on_failure]
         }
       end
 
@@ -124,7 +125,8 @@ module Agentic
             ),
             id: task_data["id"],
             depends_on: graph_ids(task_data["depends_on"], index),
-            needs: graph_needs(task_data["needs"], index)
+            needs: graph_needs(task_data["needs"], index),
+            on_failure: failure_policy(task_data["on_failure"], index)
           )
         end.compact
 
@@ -191,6 +193,19 @@ module Agentic
     end
 
     private
+
+    # Reads a task's on_failure policy, falling back to the default when
+    # the LLM sent something the plan format does not know
+    # @param value [Object] The raw on_failure value from the LLM
+    # @param index [Integer] Position of the task, for log context
+    # @return [String, nil] A known policy, or nil for the default
+    def failure_policy(value, index)
+      return nil if value.nil?
+      return value if TaskDefinition::ON_FAILURE_POLICIES.include?(value)
+
+      Agentic.logger.warn("Ignoring on_failure in task at index #{index}: unknown policy #{value.inspect}")
+      nil
+    end
 
     # Reads a task's depends_on list, dropping anything that is not a
     # non-empty string so one malformed edge does not sink the whole plan

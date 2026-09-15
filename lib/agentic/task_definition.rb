@@ -9,7 +9,14 @@ module Agentic
   # scoped to the plan document; the orchestrator assigns its own runtime
   # ids when definitions become tasks. All three fields are optional, so a
   # flat plan with none of them is unchanged in shape and behavior.
+  #
+  # +on_failure+ says what the graph does when this task fails for good:
+  # +"skip_dependents"+ (default) skips everything downstream, +"continue"+
+  # lets dependents run and read the failure via +Task#failure_of+.
   class TaskDefinition
+    # Accepted on_failure policies, as strings because plans are JSON
+    ON_FAILURE_POLICIES = %w[skip_dependents continue].freeze
+
     # @return [String] A description of the task
     attr_reader :description
 
@@ -25,18 +32,33 @@ module Agentic
     # @return [Hash{String=>String}] Named inputs mapped to the plan-local id whose output supplies them
     attr_reader :needs
 
+    # @return [String] What dependents do when this task fails terminally
+    attr_reader :on_failure
+
     # Initializes a new task definition
     # @param description [String] A description of the task
     # @param agent [AgentSpecification] The agent specification for this task
     # @param id [String, nil] Plan-local id other tasks may reference
     # @param depends_on [Array<String>] Plan-local ids this task runs after
     # @param needs [Hash{String=>String}] Named inputs mapped to upstream plan-local ids
-    def initialize(description:, agent:, id: nil, depends_on: [], needs: {})
+    # @param on_failure [String, Symbol, nil] "skip_dependents" (default) or "continue"
+    # @raise [ArgumentError] If on_failure is not a known policy
+    def initialize(description:, agent:, id: nil, depends_on: [], needs: {}, on_failure: nil)
       @description = description
       @agent = agent
       @id = id&.to_s
       @depends_on = Array(depends_on).map(&:to_s)
       @needs = (needs || {}).to_h { |name, dep| [name.to_s, dep.to_s] }
+      @on_failure = (on_failure || "skip_dependents").to_s
+      unless ON_FAILURE_POLICIES.include?(@on_failure)
+        raise ArgumentError, "on_failure must be one of #{ON_FAILURE_POLICIES.join(", ")}, got #{@on_failure.inspect}"
+      end
+    end
+
+    # Whether dependents should run even if this task fails terminally
+    # @return [Boolean]
+    def continue_on_failure?
+      @on_failure == "continue"
     end
 
     # Every upstream id this task references, whether by ordering or by wiring
@@ -65,6 +87,7 @@ module Agentic
       hash["id"] = @id if @id
       hash["depends_on"] = @depends_on.dup unless @depends_on.empty?
       hash["needs"] = @needs.dup unless @needs.empty?
+      hash["on_failure"] = @on_failure if continue_on_failure?
       hash
     end
 
@@ -79,7 +102,8 @@ module Agentic
         agent: AgentSpecification.from_hash(hash["agent"]),
         id: hash["id"],
         depends_on: hash["depends_on"] || [],
-        needs: hash["needs"] || {}
+        needs: hash["needs"] || {},
+        on_failure: hash["on_failure"]
       )
     end
   end
