@@ -9,6 +9,11 @@ module Agentic
   class AgentCapabilityRegistry
     include Singleton
 
+    # Specification attributes #find accepts as bare criteria keys, beyond the
+    # named comparators (min_version, has_input, ...). Mirrors
+    # CapabilitySpecification#to_h.
+    QUERYABLE_ATTRIBUTES = %i[name description version inputs outputs dependencies].freeze
+
     attr_reader :capabilities, :providers
 
     def initialize
@@ -243,8 +248,10 @@ module Agentic
         when :has_dependency, "has_dependency"
           capability.dependencies.any? { |dep| dep[:name] == value || dep["name"] == value }
         else
-          # For other criteria, check if the capability responds to the method
-          capability.respond_to?(key) && capability.send(key) == value
+          # Any other key must name one of the specification's data attributes.
+          # Criteria can arrive from a filter hash an LLM helped build, so an
+          # unknown key means "no match", never an open method call.
+          QUERYABLE_ATTRIBUTES.include?(key.to_sym) && capability.public_send(key) == value
         end
       end
     end
