@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- README documents the seven `PlanOrchestrator` lifecycle hooks: names, when each fires, keyword arguments, the inline-on-fiber caveat, and a timing example
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
