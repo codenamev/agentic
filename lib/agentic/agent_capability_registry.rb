@@ -57,6 +57,23 @@ module Agentic
       @capabilities[name][version]
     end
 
+    # Resolve a requested version to the newest registered version that is
+    # semver-compatible with it (same major, minor >= requested). Used when a
+    # stored reference points at a version that is no longer registered.
+    # @param name [String] The name of the capability
+    # @param version [String] The requested version
+    # @return [String, nil] The compatible registered version, or nil if none
+    def resolve_compatible_version(name, version)
+      return version if get(name, version)
+      return nil unless @capabilities[name] && version
+
+      requested = CapabilitySpecification.new(name: name, description: "requested v#{version}", version: version)
+      candidates = @capabilities[name].values.select { |candidate| candidate.compatible_with?(requested) }
+      return nil if candidates.empty?
+
+      candidates.map(&:version).max { |a, b| compare_versions(a, b) }
+    end
+
     # Get the provider for a capability
     # @param name [String] The name of the capability
     # @param version [String, nil] The version of the capability, or nil for latest

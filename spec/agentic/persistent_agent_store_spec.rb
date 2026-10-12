@@ -165,6 +165,69 @@ RSpec.describe Agentic::PersistentAgentStore do
       built_agent = store.build_agent("non_existent")
       expect(built_agent).to be_nil
     end
+
+    context "when the stored capability version has been bumped" do
+      let(:logger) { instance_double(Logger, info: nil, warn: nil, debug: nil, error: nil) }
+      let(:store) { described_class.new(temp_dir, registry, logger: logger) }
+
+      def register_only(version)
+        registry.clear
+        spec = Agentic::CapabilitySpecification.new(
+          name: "text_generation",
+          description: "Generates text based on a prompt",
+          version: version,
+          inputs: {prompt: {type: "string", required: true}},
+          outputs: {response: {type: "string"}}
+        )
+        provider = Agentic::CapabilityProvider.new(
+          capability: spec,
+          implementation: ->(inputs) { {response: "v#{version}: #{inputs[:prompt]}"} }
+        )
+        registry.register(spec, provider)
+      end
+
+      it "resolves a minor bump to the newest compatible version and logs the upgrade" do
+        register_only("1.1.0")
+
+        built_agent = store.build_agent(@id)
+
+        expect(built_agent.has_capability?("text_generation")).to be true
+        expect(built_agent.capability_specification("text_generation").version).to eq("1.1.0")
+        expect(logger).to have_received(:info).with(/Upgraded capability text_generation from v1\.0\.0 to v1\.1\.0/)
+      end
+
+      it "picks the newest compatible version when several are registered" do
+        register_only("1.1.0")
+        one_three = Agentic::CapabilitySpecification.new(
+          name: "text_generation", description: "newer", version: "1.3.0"
+        )
+        registry.register(one_three, Agentic::CapabilityProvider.new(
+          capability: one_three, implementation: ->(_) { {response: "1.3"} }
+        ))
+        two_oh = Agentic::CapabilitySpecification.new(name: "text_generation", description: "major", version: "2.0.0")
+        registry.register(two_oh, Agentic::CapabilityProvider.new(capability: two_oh, implementation: ->(_) { {response: "2.0"} }))
+
+        built_agent = store.build_agent(@id)
+
+        expect(built_agent.capability_specification("text_generation").version).to eq("1.3.0")
+      end
+
+      it "raises at load time on a major bump instead of returning a degraded agent" do
+        register_only("2.0.0")
+
+        expect { store.build_agent(@id) }.to raise_error(Agentic::Errors::CapabilityNotFoundError) { |error|
+          expect(error.capability_name).to eq("text_generation")
+          expect(error.message).to include(@id)
+          expect(error.message).to include("v1.0.0")
+        }
+      end
+
+      it "raises at load time when the capability is no longer registered at all" do
+        registry.clear
+
+        expect { store.build_agent(@id) }.to raise_error(Agentic::Errors::CapabilityNotFoundError, /text_generation/)
+      end
+    end
   end
 
   describe "#all/#list_all" do
