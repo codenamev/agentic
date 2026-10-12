@@ -154,6 +154,30 @@ RSpec.describe Agentic::AgentAssemblyEngine do
     end
   end
 
+  describe "#analyze_requirements with plan-time capabilities" do
+    it "seeds capabilities the plan named at full importance" do
+      planned = Agentic::Task.new(description: "Brainstorm ten names for a coffee brand", agent_spec: task.agent_spec, capabilities: ["brainstorming"])
+
+      requirements = engine.analyze_requirements(planned)
+
+      expect(requirements["brainstorming"]).to eq({importance: 1.0, version_constraint: nil})
+    end
+
+    it "lets the plan name what inference from the description cannot" do
+      description = "Summarize this quarterly report into five bullet points"
+      plain = Agentic::Task.new(description: description, agent_spec: task.agent_spec)
+      planned = Agentic::Task.new(description: description, agent_spec: task.agent_spec, capabilities: ["summarization"])
+
+      expect(engine.analyze_requirements(plain)).not_to include("summarization")
+      expect(engine.analyze_requirements(planned)).to include("summarization")
+    end
+
+    it "leaves a task with no plan-time choice to inference alone" do
+      expect(task.capabilities).to eq([])
+      expect(engine.analyze_requirements(task)).to include("code_generation", "web_search")
+    end
+  end
+
   describe "#select_capabilities" do
     let(:strategy) { Agentic::DefaultCompositionStrategy.new }
 
