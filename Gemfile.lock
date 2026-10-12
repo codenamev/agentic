@@ -3,12 +3,12 @@ PATH
   specs:
     agentic (0.2.0)
       async (~> 2.0)
-      cgi
-      dry-schema
-      logger
-      ostruct
+      cgi (~> 0.4)
+      dry-schema (~> 1.13)
+      logger (~> 1.6)
+      ostruct (~> 0.6)
       pastel (~> 0.8)
-      ruby-openai
+      ruby-openai (>= 7.1, < 9)
       thor (~> 1.2)
       tty-box (~> 0.7)
       tty-cursor (~> 0.7)
@@ -16,7 +16,7 @@ PATH
       tty-screen (~> 0.8)
       tty-spinner (~> 0.9)
       tty-table (~> 0.12)
-      zeitwerk
+      zeitwerk (~> 2.6)
 
 GEM
   remote: https://rubygems.org/
