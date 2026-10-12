@@ -628,8 +628,10 @@ module Agentic
         # Handle failure based on policy
         handle_task_failure(task, result.failure, agent_provider, semaphore, barrier)
       end
-    rescue => e
-      # Handle unexpected errors
+    rescue SecurityError, StandardError => e
+      # Handle unexpected errors. SecurityError is not a StandardError, so it is
+      # named explicitly: a workspace or sanitizer rejection must land in the
+      # plan record as a TaskFailure rather than escape the barrier.
       failure = TaskFailure.from_exception(e, {
         task_id: task_id,
         context_type: "unexpected_error"

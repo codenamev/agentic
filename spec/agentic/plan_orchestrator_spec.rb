@@ -506,4 +506,31 @@ RSpec.describe Agentic::PlanOrchestrator do
       end
     end
   end
+
+  describe "unexpected errors outside StandardError" do
+    let(:task) do
+      Agentic::Task.new(
+        description: "Task that trips workspace security",
+        agent_spec: {"instructions" => "You are a test agent"},
+        input: {}
+      )
+    end
+
+    it "records a SecurityError as a TaskFailure instead of escaping the plan" do
+      agent = MockAgent.new
+      allow(agent).to receive(:execute).and_raise(SecurityError, "Invalid artifact name: path traversal detected in '../x.md'")
+      provider = TestAgentProvider.new
+      allow(provider).to receive(:get_agent_for_task).and_return(agent)
+      orchestrator.add_task(task)
+
+      result = nil
+      expect { result = orchestrator.execute_plan(provider) }.not_to raise_error
+
+      task_result = result.task_result(task.id)
+      expect(task_result).to be_failed
+      expect(task_result.failure.type).to eq("SecurityError")
+      expect(task_result.failure.message).to match(/path traversal/)
+      expect(task_result.failure.context[:context_type]).to eq("unexpected_error")
+    end
+  end
 end
