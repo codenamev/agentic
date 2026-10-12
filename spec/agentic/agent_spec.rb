@@ -42,13 +42,41 @@ RSpec.describe Agentic::Agent do
     let(:schema) { instance_double(Agentic::StructuredOutputs::Schema) }
 
     it "honors the schema through the LLM client" do
-      response = instance_double(Agentic::LlmResponse, successful?: true, content: {"answer" => 42})
+      response = instance_double(Agentic::LlmResponse, successful?: true, content: {"answer" => 42}, stats: nil)
       llm_client = instance_double(Agentic::LlmClient)
       allow(llm_client).to receive(:complete).with(anything, output_schema: schema).and_return(response)
 
       agent = Agentic::Agent.build { |a| a.llm_client = llm_client }
 
       expect(agent.execute_with_schema("What is the answer?", schema)).to eq({"answer" => 42})
+    end
+
+    it "remembers the response's token usage as last_stats" do
+      stats = Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 12, completion_tokens: 30, total_tokens: 42)
+      response = instance_double(Agentic::LlmResponse, successful?: true, content: {"answer" => 42}, stats: stats)
+      llm_client = instance_double(Agentic::LlmClient)
+      allow(llm_client).to receive(:complete).and_return(response)
+
+      agent = Agentic::Agent.build { |a| a.llm_client = llm_client }
+      agent.execute_with_schema("What is the answer?", schema)
+
+      expect(agent.last_stats).to be(stats)
+    end
+
+    it "clears last_stats when an execution does not reach the LLM" do
+      stats = Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 1, completion_tokens: 1, total_tokens: 2)
+      response = instance_double(Agentic::LlmResponse, successful?: true, content: "ok", stats: stats)
+      llm_client = instance_double(Agentic::LlmClient)
+      allow(llm_client).to receive(:complete).and_return(response)
+      agent = Agentic::Agent.build { |a| a.llm_client = llm_client }
+      agent.execute("first")
+      expect(agent.last_stats).to be(stats)
+
+      agent.instance_variable_get(:@capabilities)["text_generation"] = {specification: nil, provider: nil}
+      allow(agent).to receive(:execute_capability).and_return({response: "from capability"})
+      agent.execute("second")
+
+      expect(agent.last_stats).to be_nil
     end
 
     it "refuses to silently drop the schema when only text_generation is available" do

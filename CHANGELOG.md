@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- `TaskResult#stats` carries the `GenerationStats` of the LLM response that produced it (nil when unknown); `Agent#last_stats` exposes the most recent response's usage. `ExecutionJournal` writes `prompt_tokens`/`completion_tokens`/`total_tokens` on `task_succeeded` lines and replays them into `ReplayedState#tokens` / `#total_tokens`; `Learning.lifecycle_hooks` records `tokens_used` so `PatternRecognizer`'s token-heavy analysis runs from the built-in wiring (#46)
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts

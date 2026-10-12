@@ -55,6 +55,35 @@ RSpec.describe Agentic::ExecutionJournal do
       expect(events).to eq(%w[task_started task_succeeded plan_completed])
     end
 
+    it "records the task's token usage on task_succeeded and replays it" do
+      stats = Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 100, completion_tokens: 50, total_tokens: 150)
+      allow(agent).to receive(:last_stats).and_return(stats)
+      orchestrator = Agentic::PlanOrchestrator.new(lifecycle_hooks: journal.lifecycle_hooks)
+      task = Agentic::Task.new(description: "Costed", agent_spec: {"instructions" => "test"}, input: {})
+      orchestrator.add_task(task)
+
+      orchestrator.execute_plan(provider)
+
+      line = File.readlines(path).map { |l| JSON.parse(l) }.find { |e| e["event"] == "task_succeeded" }
+      expect(line).to include("prompt_tokens" => 100, "completion_tokens" => 50, "total_tokens" => 150)
+      state = described_class.replay(path: path)
+      expect(state.tokens[task.id]).to eq(prompt_tokens: 100, completion_tokens: 50, total_tokens: 150)
+      expect(state.total_tokens).to eq(150)
+    end
+
+    it "omits token fields when the result carries no stats" do
+      orchestrator = Agentic::PlanOrchestrator.new(lifecycle_hooks: journal.lifecycle_hooks)
+      orchestrator.add_task(Agentic::Task.new(description: "Free", agent_spec: {"instructions" => "test"}, input: {}))
+
+      orchestrator.execute_plan(provider)
+
+      line = File.readlines(path).map { |l| JSON.parse(l) }.find { |e| e["event"] == "task_succeeded" }
+      expect(line.keys).not_to include("total_tokens")
+      state = described_class.replay(path: path)
+      expect(state.tokens).to be_empty
+      expect(state.total_tokens).to be_nil
+    end
+
     it "chains through existing hooks instead of replacing them" do
       observed = []
       hooks = journal.lifecycle_hooks(
