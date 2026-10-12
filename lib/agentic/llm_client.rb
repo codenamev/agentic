@@ -291,27 +291,27 @@ module Agentic
           "OpenAI API connection error: #{error.message}",
           network_exception: error
         )
-when defined?(Faraday::Error) && Faraday::Error
-  status = error.respond_to?(:response_status) ? error.response_status : nil
-  headers = error.respond_to?(:response_headers) ? (error.response_headers || {}) : {}
-  response = error.respond_to?(:response) && error.response.is_a?(Hash) ? error.response : nil
+      when defined?(Faraday::Error) && Faraday::Error
+        status = error.respond_to?(:response_status) ? error.response_status : nil
+        headers = error.respond_to?(:response_headers) ? (error.response_headers || {}) : {}
+        response = (error.respond_to?(:response) && error.response.is_a?(Hash)) ? error.response : nil
 
-  case status
-  when 429
-    Errors::LlmRateLimitError.new(
-      "OpenAI API rate limit exceeded: #{error.message}",
-      retry_after: headers["retry-after"]&.to_i,
-      response: response
-    )
-  when 401, 403
-    Errors::LlmAuthenticationError.new("OpenAI API authentication error: #{error.message}", response: response)
-  when 400, 404, 422
-    Errors::LlmInvalidRequestError.new("Invalid request to OpenAI API: #{error.message}", response: response)
-  when 500..599
-    Errors::LlmServerError.new("OpenAI API server error: #{error.message}", response: response)
-  else
-    Errors::LlmNetworkError.new("OpenAI API connection error: #{error.message}", network_exception: error)
-  end
+        case status
+        when 429
+          Errors::LlmRateLimitError.new(
+            "OpenAI API rate limit exceeded: #{error.message}",
+            retry_after: headers["retry-after"]&.to_i,
+            response: response
+          )
+        when 401, 403
+          Errors::LlmAuthenticationError.new("OpenAI API authentication error: #{error.message}", response: response)
+        when 400, 404, 422
+          Errors::LlmInvalidRequestError.new("Invalid request to OpenAI API: #{error.message}", response: response)
+        when 500..599
+          Errors::LlmServerError.new("OpenAI API server error: #{error.message}", response: response)
+        else
+          Errors::LlmNetworkError.new("OpenAI API connection error: #{error.message}", network_exception: error)
+        end
       when OpenAI::Error
         # Parse error message to determine specific error type
         message = error.message.to_s.downcase
