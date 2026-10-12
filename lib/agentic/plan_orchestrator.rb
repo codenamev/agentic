@@ -13,6 +13,9 @@ module Agentic
   # @attr_reader [Hash] execution_state Current state of all tasks in the plan
   # @attr_reader [Hash] results Results of task execution
   class PlanOrchestrator
+    # What happens downstream when a task fails for good
+    FAILURE_POLICIES = %i[skip_dependents continue].freeze
+
     attr_reader :plan_id, :tasks, :execution_state, :results, :retry_policy, :lifecycle_hooks
 
     # Initializes a new plan orchestrator
@@ -38,6 +41,8 @@ module Agentic
       @async_tasks = {}
       @task_agents = {}
       @task_needs = {}
+      @failure_policies = {}
+      @tolerated_failures = Set.new
 
       # Configure retry policy with defaults. Jitter defaults ON: a fleet
       # retrying an upstream on the same schedule is a synchronized
@@ -79,10 +84,20 @@ module Agentic
     # @param dependencies [Array<String, Task>] Tasks (or ids) this task depends on
     # @param agent [#execute, #call, nil] The agent or callable to execute this task
     # @param needs [Hash{Symbol=>Task,String}, nil] Named dependencies
+    # @param on_failure [Symbol, String] :skip_dependents (default) skips
+    #   everything downstream when this task fails for good; :continue lets
+    #   dependents run anyway and read the failure via Task#failure_of
     # @return [void]
-    def add_task(task, dependencies = [], agent: nil, needs: nil)
+    # @raise [ArgumentError] If on_failure is not a known policy
+    def add_task(task, dependencies = [], agent: nil, needs: nil, on_failure: :skip_dependents)
       task_id = task.id
+      policy = on_failure.to_sym
+      unless FAILURE_POLICIES.include?(policy)
+        raise ArgumentError, "on_failure must be one of #{FAILURE_POLICIES.join(", ")}, got #{on_failure.inspect}"
+      end
+
       @tasks[task_id] = task
+      @failure_policies[task_id] = policy
       deps = Array(dependencies).map { |dep| dep.respond_to?(:id) ? dep.id : dep }
 
       if needs
@@ -401,8 +416,15 @@ module Agentic
     def all_dependencies_met?(task_id)
       deps = @dependencies[task_id] || []
       deps.all? do |dep_id|
-        @execution_state[:completed].include?(dep_id)
+        @execution_state[:completed].include?(dep_id) || @tolerated_failures.include?(dep_id)
       end
+    end
+
+    # Whether a task's terminal failure lets its dependents run
+    # @param task_id [String] ID of the task
+    # @return [Boolean]
+    def continue_on_failure?(task_id)
+      @failure_policies[task_id] == :continue
     end
 
     # Finds tasks that are eligible for execution (have no dependencies)
@@ -522,18 +544,26 @@ module Agentic
       task = @tasks[task_id]
       transition_task_state(task_id, from: :pending, to: :in_progress)
 
-      # Pipe completed dependency outputs into the task before it runs
+      # Pipe completed dependency outputs into the task before it runs.
+      # A tolerated failure (on_failure: :continue) is recorded as a
+      # failure so the task can branch on it; output_of stays nil
       @dependencies[task_id].each do |dependency_id|
         dependency_result = @results[dependency_id]
         if dependency_result&.successful?
           task.record_dependency_output(dependency_id, dependency_result.output)
+        elsif dependency_result&.failed?
+          task.record_dependency_failure(dependency_id, dependency_result.failure)
         end
       end
 
       # Named dependencies arrive addressable by the caller's chosen name
       @task_needs[task_id]&.each do |name, dependency_id|
         dependency_result = @results[dependency_id]
-        task.needs[name] = dependency_result.output if dependency_result&.successful?
+        if dependency_result&.successful?
+          task.needs[name] = dependency_result.output
+        elsif dependency_result&.failed?
+          task.needs.record_failure(name, dependency_result.failure)
+        end
       end
 
       # Call before_task_execution hook
@@ -689,10 +719,21 @@ module Agentic
       end
 
       # Whichever branch ran, the failure is terminal if the task is still
-      # in :failed (a retry would have moved it back to :pending). Its
-      # dependents can never become eligible, so record that instead of
-      # leaving them stranded in :pending with no execution history
-      skip_dependents_of(task.id) if @execution_state[:failed].include?(task.id)
+      # in :failed (a retry would have moved it back to :pending). By
+      # default its dependents can never become eligible, so record that
+      # instead of leaving them stranded in :pending with no execution
+      # history. A task added with on_failure: :continue lets them run
+      # anyway - unless a human was just asked to step in, in which case
+      # nothing downstream moves until they do
+      return unless @execution_state[:failed].include?(task.id)
+
+      if continue_on_failure?(task.id) && !requires_intervention?(failure: failure)
+        Agentic.logger.info("Task #{task.id} failed but on_failure is continue; running dependents")
+        @tolerated_failures.add(task.id)
+        schedule_dependent_tasks(task.id, agent_provider, semaphore, barrier)
+      else
+        skip_dependents_of(task.id)
+      end
     end
 
     # Moves every pending task downstream of a terminally failed task to

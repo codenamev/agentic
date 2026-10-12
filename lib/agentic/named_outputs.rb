@@ -10,6 +10,7 @@ module Agentic
   class NamedOutputs
     def initialize
       @outputs = {}
+      @failures = {}
     end
 
     # Assigns a named output (called by the orchestrator)
@@ -34,6 +35,27 @@ module Agentic
     # @return [Hash{Symbol=>Object}] A copy of all named outputs
     def to_h
       @outputs.dup
+    end
+
+    # Records a named dependency's failure when the graph continued past
+    # it (called by the orchestrator for on_failure: :continue)
+    # @param name [Symbol, String] The declared name
+    # @param failure [TaskFailure] The dependency's failure
+    # @return [void]
+    def record_failure(name, failure)
+      @failures[name.to_sym] = failure
+    end
+
+    # @param name [Symbol, String] The declared name
+    # @return [Boolean] True when the named dependency produced an output
+    def succeeded?(name)
+      @outputs.key?(name.to_sym)
+    end
+
+    # @param name [Symbol, String] The declared name
+    # @return [TaskFailure, nil] The named dependency's failure, if it was tolerated
+    def failure_of(name)
+      @failures[name.to_sym]
     end
 
     # Named outputs read as methods: task.needs.shipped
