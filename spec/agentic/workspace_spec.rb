@@ -197,6 +197,17 @@ RSpec.describe Agentic::Workspace do
     end
   end
 
+  describe "#verify_artifact" do
+    it "verifies by file extension even when the declared type says otherwise" do
+      artifact = Agentic::Artifact.new(name: "user.rb", type: :markdown, content: "class User; end")
+
+      expect(Agentic::Verification::RubyArtifactVerificationStrategy)
+        .to receive(:new).and_call_original
+
+      workspace.add_artifact(artifact)
+    end
+  end
+
   describe "#find_artifact" do
     before do
       workspace.add_artifact(user_artifact)
