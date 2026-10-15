@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `Security::Sanitizer.sanitize_file_content` scopes its denylists by artifact type: prose and data artifacts (`:markdown`, `:text`, `:json`, `:yaml`) no longer fail on inline code spans or on sentences that mention `system(`/`eval(`, and `:sql` artifacts may contain SQL. `Workspace` passes the artifact name, and with a name only the file extension decides the scope (`.md`, `.txt`, `.sql`): a model-declared type can never loosen the checks on a `.rb` or `.sh` file, and YAML/JSON config files keep every check. Code artifacts and unknown types keep every check; the encoding and file-system checks apply to all
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 

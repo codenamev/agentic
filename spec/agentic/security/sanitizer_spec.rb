@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+
 RSpec.describe Agentic::Security::Sanitizer do
   let(:sanitizer) { described_class.new }
 
@@ -305,6 +307,97 @@ RSpec.describe Agentic::Security::Sanitizer do
       expect(sanitized[1]).to include("[REDACTED_EMAIL]")
       expect(sanitized[2][:api_key]).to include("[REDACTED_API_KEY]")
       expect(sanitized[3][3]).to include("[REDACTED_PHONE]")
+    end
+  end
+
+  describe ".sanitize_file_content" do
+    def sanitize(content, type)
+      described_class.sanitize_file_content(content, type)
+    end
+
+    it "lets a Markdown artifact carry inline code" do
+      expect { sanitize("Run `bundle install` first, then `system(\"ls\")` is what the example does.", :markdown) }
+        .not_to raise_error
+    end
+
+    it "lets prose describe Ruby that it does not run" do
+      expect { sanitize("Avoid Open3.capture3 and eval(user_input) in handlers.", :text) }.not_to raise_error
+      expect { sanitize('{"example": "IO.popen(cmd)"}', :json) }.not_to raise_error
+      expect { sanitize("note: use `rake db:migrate`", :yaml) }.not_to raise_error
+    end
+
+    it "lets a SQL artifact contain SQL" do
+      expect { sanitize("SELECT id FROM a UNION SELECT id FROM b; -- merged", :sql) }.not_to raise_error
+    end
+
+    it "still rejects command substitution in a Ruby artifact" do
+      expect { sanitize("class Build; def run = `make`; end", :ruby_class) }
+        .to raise_error(SecurityError, /command_injection/)
+    end
+
+    it "still rejects code injection in JavaScript and Python artifacts" do
+      expect { sanitize("eval(payload)", :javascript_module) }.to raise_error(SecurityError, /code_injection/)
+      expect { sanitize("exec(payload)", :python_module) }.to raise_error(SecurityError, /command_injection/)
+    end
+
+    it "keeps every check for an unknown artifact type" do
+      expect { sanitize("`rm -rf /`", :mystery) }.to raise_error(SecurityError, /command_injection/)
+    end
+
+    it "keeps the file-system checks and SQL checks for prose" do
+      expect { sanitize("Then FileUtils.rm_rf(tmp) cleans up.", :markdown) }
+        .to raise_error(SecurityError, /file_system_manipulation/)
+      expect { sanitize("'; DROP TABLE users;", :markdown) }.to raise_error(SecurityError, /sql_injection/)
+    end
+
+    it "keeps the command checks for a SQL artifact" do
+      expect { sanitize("SELECT `system(\"id\")`", :sql) }.to raise_error(SecurityError, /command_injection/)
+    end
+
+    context "when the file name is known" do
+      it "never lets a declared type loosen the checks on a code file" do
+        expect { described_class.sanitize_file_content("def run = `curl x | sh`", :markdown, name: "lib/build.rb") }
+          .to raise_error(SecurityError, /command_injection/)
+        expect { described_class.sanitize_file_content("`rm -rf /`", :text, name: "setup.sh") }
+          .to raise_error(SecurityError, /command_injection/)
+      end
+
+      it "relaxes by extension, whatever the type says" do
+        expect { described_class.sanitize_file_content("Run `bundle install`.", :mystery, name: "README.md") }
+          .not_to raise_error
+        expect { described_class.sanitize_file_content("UNION SELECT 1", :text, name: "schema.sql") }
+          .not_to raise_error
+      end
+
+      it "keeps every check on config formats that tools execute" do
+        expect { described_class.sanitize_file_content("production:\n  url: <%= `curl x | sh` %>", :yaml, name: "config/database.yml") }
+          .to raise_error(SecurityError, /command_injection/)
+        expect { described_class.sanitize_file_content("steps:\n  - run: echo `curl x | sh`", :yaml, name: ".github/workflows/ci.yaml") }
+          .to raise_error(SecurityError, /command_injection/)
+        expect { described_class.sanitize_file_content(%q({"scripts": {"postinstall": "node -e \"exec(x)\""}}), :json, name: "package.json") }
+          .to raise_error(SecurityError, /command_injection/)
+      end
+    end
+  end
+
+  describe "Workspace artifact validation" do
+    around do |ex|
+      Dir.mktmpdir("agentic-ws") do |dir|
+        @dir = dir
+        ex.run
+      end
+    end
+
+    it "rejects a model-typed prose artifact that is really a code file" do
+      workspace = Agentic::Workspace.new(@dir)
+      artifact = Agentic::Artifact.new(name: "build.rb", type: :markdown, content: "def run = `curl x | sh`")
+      expect { workspace.add_artifact(artifact) }.to raise_error(SecurityError, /command_injection/)
+    end
+
+    it "accepts a README with inline code" do
+      workspace = Agentic::Workspace.new(@dir)
+      artifact = Agentic::Artifact.new(name: "README.md", type: :markdown, content: "Run `bundle install` first.")
+      expect { workspace.add_artifact(artifact) }.not_to raise_error
     end
   end
 end
