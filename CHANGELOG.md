@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Security
-- The CLI no longer steers the OpenAI key into `.agentic.yml`: `agentic config set` refuses credential-shaped keys (token, key, secret, password), and the missing-token error and README point at `OPENAI_ACCESS_TOKEN` / `Agentic.configure`, which are the paths that actually work. Nothing ever read `api_token` from that file, and it is not gitignored.
+- The CLI no longer steers the OpenAI key into `.agentic.yml`: `agentic config set` refuses keys containing token, key, secret, passw, or credential in any spelling, and values shaped like an OpenAI key, and the missing-token error and README point at `OPENAI_ACCESS_TOKEN` / `Agentic.configure`, which are the paths that actually work. Nothing ever read `api_token` from that file, and it is not gitignored.
 
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile

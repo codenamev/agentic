@@ -134,9 +134,13 @@ RSpec.describe Agentic::CLI::ConfigCommands do
       expect(config_commands).to have_received(:save_config).with(config_path, {"test_string" => "hello"})
     end
 
-    it "refuses credential-shaped keys and writes nothing" do
-      %w[api_token=sk-123 OPENAI_KEY=abc client_secret=x db_password=y].each do |key_value|
-        expect { config_commands.set(key_value) }.to raise_error(SystemExit)
+    it "refuses credential-shaped keys and values and writes nothing" do
+      %w[
+        api_token=sk-123 OPENAI_KEY=abc client_secret=x db_password=y
+        apiKey=abc api-key=abc apikey=abc accessToken=abc credentials=abc passwd=abc
+        model=sk-proj-abcdefghijklmnopqrstuvwxyz
+      ].each do |key_value|
+        expect { config_commands.set(key_value) }.to raise_error(SystemExit), "expected #{key_value} to be refused"
       end
 
       expect(config_commands).not_to have_received(:save_config)
@@ -144,13 +148,9 @@ RSpec.describe Agentic::CLI::ConfigCommands do
       expect(output.string).to include("OPENAI_ACCESS_TOKEN")
     end
 
-    it "still sets non-secret keys, including names that merely contain a credential word" do
+    it "still sets non-secret keys" do
       config_commands.set("model=gpt-4o-mini")
       expect(config_commands).to have_received(:save_config).with(config_path, {"model" => "gpt-4o-mini"})
-
-      allow(config_commands).to receive(:load_config).and_return({})
-      config_commands.set("tokenizer=tiktoken")
-      expect(config_commands).to have_received(:save_config).with(config_path, {"tokenizer" => "tiktoken"})
     end
 
     it "shows an error for invalid format" do

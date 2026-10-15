@@ -468,11 +468,14 @@ module Agentic
         end
       end
 
-      # Keys that look like credentials (api_token, openai_key, client_secret,
-      # db_password), matched on whole name segments so "tokenizer" passes.
+      # Keys that look like credentials (api_token, apiKey, api-key, client_secret,
+      # db_password, credentials) and values shaped like an OpenAI key.
       # .agentic.yml is plain text, is not gitignored, and nothing reads a
-      # token out of it, so storing one there is a leak with no payoff
-      CREDENTIAL_KEY = /(\A|_)(token|key|secret|password)(_|\z)/i
+      # token out of it, so storing one there is a leak with no payoff. The
+      # key check is a substring match on purpose: a false positive costs a
+      # rename, a false negative costs a secret
+      CREDENTIAL_KEY = /token|key|secret|passw|credential/i
+      CREDENTIAL_VALUE = /\Ask-[A-Za-z0-9_-]{16,}\z/
 
       desc "set KEY=VALUE", "Set a configuration setting"
       option :global, type: :boolean, aliases: "-g",
@@ -485,7 +488,7 @@ module Agentic
           exit 1
         end
 
-        if key.match?(CREDENTIAL_KEY)
+        if key.match?(CREDENTIAL_KEY) || value.match?(CREDENTIAL_VALUE)
           puts UI.box(
             "Refusing to store a credential",
             "'#{key}' looks like a secret, and #{CONFIG_FILE_NAME} is a plain-text file " \
