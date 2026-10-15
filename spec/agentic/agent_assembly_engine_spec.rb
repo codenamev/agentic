@@ -194,6 +194,16 @@ RSpec.describe Agentic::AgentAssemblyEngine do
         end
       end
 
+      it "matches a name only at a word boundary" do
+        register_simple("db", "Database access")
+        register_simple("ai", "Chat with a model")
+        requirements = engine.analyze_requirements(task_for("Maintain the feedback form"))
+        expect(requirements.keys).not_to include("db", "ai")
+
+        requirements = engine.analyze_requirements(task_for("Load the db and ask the ai"))
+        expect(requirements.keys).to include("db", "ai")
+      end
+
       it "does not infer names nothing has registered" do
         requirements = engine.analyze_requirements(task_for("Generate a UML diagram and run the dependency analysis"))
         expect(requirements.keys).not_to include("uml_generation", "dependency_analysis")

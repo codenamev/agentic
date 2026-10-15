@@ -321,7 +321,7 @@ module Agentic
       # capability registered by a downstream gem is assemble-able from a
       # plain description with no change here. Simple keyword matching;
       # the LLM-assisted strategy does the same against registry.list
-      @registry.list.keys.each do |capability|
+      @registry.list.each_key do |capability|
         next unless description_mentions_capability?(description, capability)
 
         if requirements[capability]
@@ -356,17 +356,20 @@ module Agentic
 
     # Check whether a description mentions a capability, either literally
     # ("data_analysis"), space-separated ("data analysis"), or via word stems
-    # so that "Analyze the data" still matches "data_analysis"
+    # so that "Analyze the data" still matches "data_analysis". Every form
+    # must start a word: "db" does not match "feedback", "ai" does not
+    # match "maintain"
     # @param description [String] The text to search
     # @param capability [String] The capability name (underscore-separated)
     # @return [Boolean] True if the description mentions the capability
     def description_mentions_capability?(description, capability)
       text = description.downcase
-      return true if text.include?(capability.downcase) || text.include?(capability.tr("_", " "))
+      name = capability.downcase
+      return true if text.match?(/\b#{Regexp.escape(name)}\b/) || text.match?(/\b#{Regexp.escape(name.tr("_", " "))}\b/)
 
-      capability.split("_").all? do |word|
+      name.split("_").all? do |word|
         stem = word[0, 5]
-        stem.length >= 3 && text.include?(stem)
+        stem.length >= 3 && text.match?(/\b#{Regexp.escape(stem)}/)
       end
     end
 
