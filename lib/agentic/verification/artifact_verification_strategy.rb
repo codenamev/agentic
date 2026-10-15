@@ -43,14 +43,44 @@ module Agentic
     #     puts "Verification failed: #{result.message}"
     #   end
     class ArtifactVerificationStrategy
-      # Factory method to get verification strategy for artifact type
+      # File extensions that select a language-specific strategy. Anything
+      # else falls through to BasicArtifactVerificationStrategy.
+      EXTENSION_TYPES = {
+        ".rb" => :ruby_class,
+        ".js" => :javascript_module,
+        ".py" => :python_module
+      }.freeze
+
+      # Pick the verification strategy for an artifact from its file extension.
       #
-      # @param artifact_type [Symbol] The type of artifact (:ruby_class, :javascript_module, etc.)
-      # @return [ArtifactVerificationStrategy] Appropriate verification strategy
+      # `artifact.type` is declared by the model that produced the artifact, so
+      # trusting it lets a generated `.rb` file labelled `:markdown` skip the Ruby
+      # checks. The extension is what the workspace actually writes to disk, so it
+      # is what verification keys off. A mismatch between the two is logged.
+      #
+      # @param artifact [Artifact] The artifact to verify
+      # @return [ArtifactVerificationStrategy] Strategy for the artifact's extension
       #
       # @example
-      #   strategy = ArtifactVerificationStrategy.for_type(:ruby_class)
-      #   result = strategy.verify(ruby_artifact)
+      #   strategy = ArtifactVerificationStrategy.for_artifact(artifact)
+      #   result = strategy.verify(artifact)
+      def self.for_artifact(artifact)
+        ext = File.extname(artifact.name.to_s).downcase
+        derived_type = EXTENSION_TYPES[ext]
+
+        if derived_type != artifact.type && (derived_type || EXTENSION_TYPES.value?(artifact.type))
+          Agentic.logger.warn(
+            "Artifact #{artifact.name} declares type #{artifact.type.inspect} but extension " \
+            "#{ext.inspect} maps to #{derived_type.inspect}; verifying by extension"
+          )
+        end
+
+        for_type(derived_type)
+      end
+
+      # Factory method to get verification strategy for a declared artifact type.
+      # Prefer {.for_artifact} when you have the artifact: it keys off the file
+      # extension rather than the model-declared type.
       def self.for_type(artifact_type)
         case artifact_type
         when :ruby_class
