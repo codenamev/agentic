@@ -27,6 +27,20 @@ RSpec.describe Agentic::CLI do
     end
   end
 
+  describe "#check_api_token!" do
+    it "names the configuration paths that work, not .agentic.yml" do
+      allow(Agentic).to receive(:configuration).and_return(
+        instance_double(Agentic::LegacyConfiguration, access_token: nil, api_base_url: nil)
+      )
+      allow(Agentic::UI).to receive(:box) { |title, content, _| "#{title}:\n#{content}" }
+
+      expect { described_class.new.send(:check_api_token!) }.to raise_error(Thor::Error) do |error|
+        expect(error.message).to include("OPENAI_ACCESS_TOKEN", "Agentic.configure")
+        expect(error.message).not_to include(".agentic.yml", "config set api_token")
+      end
+    end
+  end
+
   describe "agent commands" do
     describe "agent list" do
       it "displays available agents" do
