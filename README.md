@@ -51,8 +51,7 @@ $ agentic config init                               # Initialize configuration
 $ agentic config init --global                      # Initialize global configuration
 $ agentic config list                               # List all configuration settings
 $ agentic config get model                          # Get a specific configuration value
-$ agentic config set api_token=your_openai_api_key  # Set your OpenAI API token
-$ agentic config set model=gpt-4o-mini             # Configure the default model
+$ agentic config set model=gpt-4o-mini              # Configure the default model
 
 # Plan Creation and Execution
 $ agentic plan "Generate a market research report on AI trends"          # Create a plan
@@ -729,19 +728,16 @@ You can configure the OpenAI API key in several ways:
    export OPENAI_ACCESS_TOKEN="your_api_key"
    ```
 
-2. Configuration file:
-   Create `.agentic.yml` in your project directory or home directory:
-   ```yaml
-   api_token: "your_api_key"
-   model: "gpt-4o-mini"
-   ```
-
-3. In your Ruby code:
+2. In your Ruby code:
    ```ruby
    Agentic.configure do |config|
      config.access_token = "your_api_key"
    end
    ```
+
+Keep the key out of `.agentic.yml`: that file holds non-secret settings such
+as `model`, is written in plain text to your project directory, and is not read
+for credentials. `agentic config set` refuses keys that look like secrets.
 
 ### LLM Configuration
 

@@ -468,6 +468,12 @@ module Agentic
         end
       end
 
+      # Keys that look like credentials (api_token, openai_key, client_secret,
+      # db_password), matched on whole name segments so "tokenizer" passes.
+      # .agentic.yml is plain text, is not gitignored, and nothing reads a
+      # token out of it, so storing one there is a leak with no payoff
+      CREDENTIAL_KEY = /(\A|_)(token|key|secret|password)(_|\z)/i
+
       desc "set KEY=VALUE", "Set a configuration setting"
       option :global, type: :boolean, aliases: "-g",
         desc: "Set in global user config instead of project config"
@@ -476,6 +482,19 @@ module Agentic
 
         unless value
           puts "Error: Invalid format. Use KEY=VALUE"
+          exit 1
+        end
+
+        if key.match?(CREDENTIAL_KEY)
+          puts UI.box(
+            "Refusing to store a credential",
+            "'#{key}' looks like a secret, and #{CONFIG_FILE_NAME} is a plain-text file " \
+            "that nothing reads credentials from.\n\n" \
+            "Set OPENAI_ACCESS_TOKEN in the environment instead, or use\n" \
+            "Agentic.configure { |c| c.access_token = \"...\" } in code.",
+            padding: [1, 2, 1, 2],
+            style: {border: {fg: :red}}
+          )
           exit 1
         end
 
@@ -841,9 +860,9 @@ module Agentic
           "Configuration Error",
           "No OpenAI API token configured.\n\n" \
           "You can set it using one of these methods:\n" \
-          "- Environment variable: OPENAI_ACCESS_TOKEN\n" \
-          "- Configuration file: .agentic.yml\n" \
-          "- Run: agentic config set api_token=your_token",
+          "- Environment variable: OPENAI_ACCESS_TOKEN (or AGENTIC_API_TOKEN)\n" \
+          "- In code: Agentic.configure { |c| c.access_token = \"...\" }\n" \
+          "- Local endpoint: AGENTIC_API_BASE_URL, which needs no token",
           style: {border: {fg: :red}},
           padding: [1, 2, 1, 2]
         )
