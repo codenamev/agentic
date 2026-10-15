@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Default self-assembly infers capabilities from the registry instead of a hardcoded 11-name list, so every registered capability (built-in, composed, or user-registered) can be selected from a task description; `DefaultCompositionStrategy` no longer selects a capability twice when it is both required and a dependency
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 

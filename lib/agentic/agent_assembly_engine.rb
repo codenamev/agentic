@@ -317,17 +317,11 @@ module Agentic
     # @param requirements [Hash] The requirements hash to update
     # @return [void]
     def infer_capabilities_from_description(description, requirements)
-      # Extract capability names from description using simple pattern matching
-      # This is a basic implementation that should be enhanced with NLP or LLM-based analysis
-
-      # Example: Look for known capability keywords
-      known_capabilities = [
-        "document_analysis", "structure_extraction", "text_generation",
-        "web_search", "data_analysis", "code_generation", "uml_generation",
-        "dependency_analysis", "testing", "performance_analysis", "code_metrics"
-      ]
-
-      known_capabilities.each do |capability|
+      # Match the description against what the registry holds, so a
+      # capability registered by a downstream gem is assemble-able from a
+      # plain description with no change here. Simple keyword matching;
+      # the LLM-assisted strategy does the same against registry.list
+      @registry.list.keys.each do |capability|
         next unless description_mentions_capability?(description, capability)
 
         if requirements[capability]
@@ -517,11 +511,14 @@ module Agentic
         # Skip if not found
         next unless capability
 
-        # Add to selected capabilities
-        selected << {
-          name: capability.name,
-          version: capability.version
-        }
+        # Add to selected capabilities, unless an earlier requirement
+        # already pulled it in as a dependency
+        unless selected.any? { |sel| sel[:name] == capability.name }
+          selected << {
+            name: capability.name,
+            version: capability.version
+          }
+        end
 
         # Add dependencies
         capability.dependencies.each do |dep|
