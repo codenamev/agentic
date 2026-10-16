@@ -252,6 +252,25 @@ RSpec.describe Agentic::Security::SecureErrorMixin do
     end
   end
 
+  describe "safe_message never raises" do
+    it "scrubs invalid bytes before sanitizing" do
+      bad = (+"key sk-123456 then \xFF\xFE").force_encoding("UTF-8")
+      error = test_error_class.new(bad)
+
+      expect { error.safe_message }.not_to raise_error
+      expect(error.safe_message).to include("[REDACTED_API_KEY]")
+      expect(error.safe_message).not_to include("sk-123456")
+    end
+
+    it "withholds the message when the sanitizer itself fails" do
+      allow(Agentic::Security::Config.sanitizer).to receive(:sanitize_error).and_raise(RuntimeError, "boom")
+      error = test_error_class.new("key sk-123456")
+
+      expect(error.safe_message).to eq("[message withheld: sanitizer raised RuntimeError]")
+      expect(error.safe_message).not_to include("sk-123456")
+    end
+  end
+
   describe "performance considerations" do
     it "handles large error contexts efficiently" do
       large_context = {}

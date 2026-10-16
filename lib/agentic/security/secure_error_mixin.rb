@@ -23,12 +23,19 @@ module Agentic
       # Instance methods available to all classes that include this mixin
 
       # Get sanitized error message
+      #
+      # Never raises: this runs inside rescue blocks, where a second exception
+      # would escape the caller's error handling. Invalid bytes in a provider
+      # error body are scrubbed before sanitizing, and if the sanitizer still
+      # fails the message is withheld rather than logged raw.
       def safe_message
         @safe_message ||= if Agentic::Security::Config.pii_detection_enabled?
-          Agentic::Security::Config.sanitizer.sanitize_error(message)
+          Agentic::Security::Config.sanitizer.sanitize_error(message.to_s.scrub)
         else
           message
         end
+      rescue => e
+        @safe_message = "[message withheld: sanitizer raised #{e.class}]"
       end
 
       # Get sanitized context (for errors that have context)

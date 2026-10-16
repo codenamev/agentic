@@ -330,6 +330,27 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
+    context "when the provider error body has invalid bytes" do
+      let(:garbled) { (+"Incorrect API key provided: sk-abcdefghijklmnop1234 \xFF\xFE").force_encoding("UTF-8") }
+      let(:leaky_error) { OpenAI::AuthenticationError.new(garbled) }
+
+      before do
+        Agentic::Security::Config.configure(enable_pii_detection: true)
+        allow(openai_client).to receive(:chat).and_raise(leaky_error)
+      end
+
+      after { Agentic::Security::Config.reset! }
+
+      it "still returns an error result instead of raising out of the rescue" do
+        result = nil
+        expect { result = subject.complete(messages) }.not_to raise_error
+
+        expect(result.success?).to be false
+        expect(result.error).to be_a(Agentic::Errors::LlmAuthenticationError)
+        expect(Agentic.logger).not_to have_received(:error).with(a_string_including("sk-abcdefghijklmnop1234"))
+      end
+    end
+
     context "with network errors" do
       let(:timeout_error) { Net::ReadTimeout.new("Read timeout") }
 
