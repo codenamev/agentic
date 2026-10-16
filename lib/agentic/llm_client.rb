@@ -163,22 +163,22 @@ module Agentic
       end
     rescue OpenAI::Error => e
       error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error: #{error.message}")
+      Agentic.logger.error("OpenAI API error: #{error.safe_message}")
       handle_error(error, fail_on_error)
     rescue Net::ReadTimeout, Net::OpenTimeout => e
       error = Errors::LlmTimeoutError.new("Request to LLM timed out: #{e.message}", context: {timeout_type: e.class.name})
-      Agentic.logger.error(error.message)
+      Agentic.logger.error(error.safe_message)
       handle_error(error, fail_on_error)
     rescue JSON::ParserError => e
       error = Errors::LlmParseError.new("Failed to parse JSON response: #{e.message}", parse_exception: e)
-      Agentic.logger.error(error.message)
+      Agentic.logger.error(error.safe_message)
       handle_error(error, fail_on_error)
     rescue Errors::LlmRefusalError, Errors::LlmParseError => e
       # Re-raise our custom errors that are already properly formatted
       handle_error(e, fail_on_error)
     rescue => e
       error = Errors::LlmError.new("Unexpected error in LLM request: #{e.message}", context: {error_class: e.class.name})
-      Agentic.logger.error("#{error.message}\n#{e.backtrace.join("\n")}")
+      Agentic.logger.error("#{error.safe_message}\n#{e.backtrace.join("\n")}")
       handle_error(error, fail_on_error)
     end
 
@@ -190,12 +190,12 @@ module Agentic
       client.models.list&.dig("data")
     rescue OpenAI::Error => e
       error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error when listing models: #{error.message}")
+      Agentic.logger.error("OpenAI API error when listing models: #{error.safe_message}")
       handle_error(error, fail_on_error)
       nil
     rescue => e
       error = Errors::LlmError.new("Unexpected error listing models: #{e.message}")
-      Agentic.logger.error("#{error.message}\n#{e.backtrace.join("\n")}")
+      Agentic.logger.error("#{error.safe_message}\n#{e.backtrace.join("\n")}")
       handle_error(error, fail_on_error)
       nil
     end
@@ -209,12 +209,12 @@ module Agentic
       client.query_generation_stats(generation_id)
     rescue OpenAI::Error => e
       error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error when querying generation stats: #{error.message}")
+      Agentic.logger.error("OpenAI API error when querying generation stats: #{error.safe_message}")
       handle_error(error, fail_on_error)
       nil
     rescue => e
       error = Errors::LlmError.new("Unexpected error querying generation stats: #{e.message}")
-      Agentic.logger.error("#{error.message}\n#{e.backtrace.join("\n")}")
+      Agentic.logger.error("#{error.safe_message}\n#{e.backtrace.join("\n")}")
       handle_error(error, fail_on_error)
       nil
     end

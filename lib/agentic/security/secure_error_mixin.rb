@@ -4,77 +4,22 @@ require_relative "config"
 
 module Agentic
   module Security
-    # Mixin to add security-aware error handling to existing error classes
+    # Mixin that gives an error class sanitized accessors for logging.
     #
-    # Provides sanitization capabilities for error messages, contexts, and responses
-    # without breaking existing error class hierarchies.
+    # Sanitization is opt-in and explicit: an error that includes this mixin
+    # keeps its ordinary #message, #to_s, and #inspect untouched, and exposes
+    # #safe_message, #safe_context, #safe_response, #safe_backtrace,
+    # #to_secure_hash, and #log_securely for any code path that writes the
+    # error somewhere it could be read (loggers, journals, plan records).
+    # Callers that log an error are responsible for picking the safe_* form;
+    # nothing here rewrites the error behind their back.
     #
     # Design Goals:
     # 1. Non-intrusive enhancement of existing error classes
-    # 2. Automatic sanitization of sensitive data in error messages
-    # 3. Configurable sanitization levels
+    # 2. Sanitized views of message, context, response, and backtrace
+    # 3. Configurable sanitization levels via Security::Config
     # 4. Backward compatibility with existing error handling
     module SecureErrorMixin
-      def self.included(base)
-        base.extend(ClassMethods)
-      end
-
-      module ClassMethods
-        # Wrap existing error class methods to add sanitization
-        def secure_error_class!
-          # Override initialize if it exists
-          if instance_method(:initialize)
-            alias_method :original_initialize, :initialize
-
-            define_method(:initialize) do |*args, **kwargs|
-              # Call original initialize first
-              original_initialize(*args, **kwargs)
-
-              # Apply sanitization to instance variables
-              apply_security_sanitization
-            end
-          end
-
-          # Override message method for sanitized output
-          alias_method :original_message, :message if instance_method(:message)
-
-          define_method(:message) do
-            if Agentic::Security::Config.pii_detection_enabled?
-              @sanitized_message ||= Agentic::Security::Config.sanitizer.sanitize_error(original_message)
-            else
-              original_message
-            end
-          end
-
-          # Override to_s for sanitized output
-          alias_method :original_to_s, :to_s if instance_method(:to_s)
-
-          define_method(:to_s) do
-            message # Use sanitized message method
-          end
-
-          # Add inspect method for debugging
-          define_method(:inspect) do
-            sanitized_attrs = {}
-
-            instance_variables.each do |var|
-              value = instance_variable_get(var)
-
-              sanitized_attrs[var] = case var.to_s
-              when "@response", "@context", "@network_exception"
-                # Sanitize complex objects
-                Agentic::Security::Config.sanitizer.sanitize(value, context: :error)
-              else
-                # Basic sanitization for simple values
-                Agentic::Security::Config.sanitizer.sanitize_error(value.to_s)
-              end
-            end
-
-            "#<#{self.class.name}:#{object_id} #{sanitized_attrs}>"
-          end
-        end
-      end
-
       # Instance methods available to all classes that include this mixin
 
       # Get sanitized error message
@@ -176,37 +121,6 @@ module Agentic
           # Minimal logging for production
           logger.error("#{self.class.name}: #{safe_message}")
         end
-      end
-
-      private
-
-      # Apply sanitization to instance variables after initialization
-      def apply_security_sanitization
-        return unless Agentic::Security::Config.pii_detection_enabled?
-
-        # Sanitize message if it's directly stored
-        if instance_variable_defined?(:@message)
-          original_message = instance_variable_get(:@message)
-          sanitized_message = Agentic::Security::Config.sanitizer.sanitize_error(original_message)
-          instance_variable_set(:@message, sanitized_message)
-        end
-
-        # Sanitize context if present
-        if instance_variable_defined?(:@context) && @context
-          @context = Agentic::Security::Config.sanitizer.sanitize(@context, context: :error)
-        end
-
-        # Sanitize response if present
-        if instance_variable_defined?(:@response) && @response
-          @response = Agentic::Security::Config.sanitizer.sanitize_api_response(@response)
-        end
-
-        # Clear cached sanitized values to force recomputation
-        @sanitized_message = nil
-        @safe_message = nil
-        @safe_context = nil
-        @safe_response = nil
-        @safe_backtrace = nil
       end
     end
   end

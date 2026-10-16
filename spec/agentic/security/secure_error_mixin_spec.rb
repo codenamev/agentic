@@ -225,6 +225,33 @@ RSpec.describe Agentic::Security::SecureErrorMixin do
     end
   end
 
+  describe "opt-in contract" do
+    it "leaves #message, #to_s, and #inspect untouched" do
+      raw = "Authentication failed for user@example.com with key sk-123456"
+      error = Agentic::Errors::LlmError.new(raw, response: {"Authorization" => "Bearer sk-123456"})
+
+      expect(error.message).to eq(raw)
+      expect(error.to_s).to eq(raw)
+      expect(error.inspect).to include("sk-123456")
+      expect(error.response).to eq({"Authorization" => "Bearer sk-123456"})
+    end
+
+    it "does not add a class-level switch to includers" do
+      expect(Agentic::Errors::LlmError).not_to respond_to(:secure_error_class!)
+      expect(test_error_class).not_to respond_to(:secure_error_class!)
+    end
+
+    it "sanitizes only through the safe_* accessors" do
+      error = Agentic::Errors::LlmError.new(
+        "key sk-123456 leaked",
+        response: {"Authorization" => "Bearer sk-123456"}
+      )
+
+      expect(error.safe_message).to eq("key [REDACTED_API_KEY] leaked")
+      expect(error.safe_response.to_s).not_to include("sk-123456")
+    end
+  end
+
   describe "performance considerations" do
     it "handles large error contexts efficiently" do
       large_context = {}
