@@ -13,6 +13,8 @@ gem "async", "<= 2.37.0"
 gem "console", "<= 1.34.3"
 gem "dry-configurable", "<= 1.3.0"
 gem "io-event", "<= 1.11.2"
+gem "parallel", "< 2" # parallel >= 2.0 (via rubocop) needs Ruby 3.3
+gem "simplecov", "< 1.3", require: false # simplecov >= 1.3 needs Ruby 3.3
 
 gem "rspec", "~> 3.0"
 
@@ -21,7 +23,6 @@ gem "standard", "~> 1.3"
 gem "vcr"
 gem "webmock"
 gem "timecop"
-gem "simplecov", require: false
 gem "memory_profiler"
 gem "benchmark" # bundled gem since Ruby 3.5; not loadable by default on 4.0
 gem "rgl", "~> 0.6"
