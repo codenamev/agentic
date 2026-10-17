@@ -220,20 +220,53 @@ module Agentic
         }
       end
 
+      # Which denylists an artifact may skip, by file extension. The command-
+      # and code-injection lists describe things a code file could DO; in a
+      # README a backtick is a code span and `system(` is a sentence about
+      # Ruby, and a static match on UNION SELECT inside a .sql file is a
+      # false-positive generator, not a check.
+      #
+      # The extension decides, never the declared type: the type can come
+      # straight from the model's response (FileGenerationCapability reads it
+      # from the JSON), so it must not be able to loosen the checks on a .rb
+      # or .sh file. Without a name nothing is relaxed. Only formats nothing
+      # executes are listed: YAML and JSON are config that tools run (ERB in
+      # a Rails database.yml, a CI workflow's run: step, a package.json
+      # script). Extensions not listed here keep every check.
+      RELAXED_SCOPE_BY_EXTENSION = {".md" => :prose, ".txt" => :prose, ".sql" => :sql}.freeze
+
+      # Lists each relaxed scope may skip. Everything else always runs.
+      SKIPPED_BY_SCOPE = {
+        prose: %i[command_injection code_injection],
+        sql: %i[sql_injection]
+      }.freeze
+
+      # Markdown is not entirely inert: agent harnesses expand !`cmd` in
+      # command and skill files (Claude Code's .claude/commands/*.md and
+      # SKILL.md) at prompt time. Prose keeps this one command check.
+      PROSE_DIRECTIVE_PATTERNS = [/!`[^`]*`/].freeze
+
       # Class method: Validate file content for security threats
       #
       # Checks artifact content for malicious patterns before writing to workspace.
-      # Raises SecurityError if threats are detected.
+      # Raises SecurityError if threats are detected. Which denylists apply
+      # depends on the file extension in name: (RELAXED_SCOPE_BY_EXTENSION):
+      # .md and .txt skip the command- and code-injection lists but keep a
+      # check for executable Markdown directives, .sql skips the SQL list,
+      # everything else - including any call without a name - runs every
+      # list. The declared type only selects the type-specific validators.
+      # The encoding check and the file-system list apply to everything.
       #
       # @param content [String] File content to validate
       # @param artifact_type [Symbol] Type of artifact (:ruby_class, :javascript_module, etc.)
+      # @param name [String, nil] The artifact's file name, when known
       # @raise [SecurityError] If malicious patterns detected
       # @return [void]
       #
       # @example
       #   Security::Sanitizer.sanitize_file_content("class User; end", :ruby_class)
       #   Security::Sanitizer.sanitize_file_content("eval(params[:code])", :ruby_class) # raises SecurityError
-      def self.sanitize_file_content(content, artifact_type)
+      def self.sanitize_file_content(content, artifact_type, name: nil)
         return if content.nil? || content.empty?
 
         # Check valid encoding before attempting regex matching
@@ -272,8 +305,16 @@ module Agentic
           ]
         }
 
-        # Check each pattern category
+        scope = name && RELAXED_SCOPE_BY_EXTENSION[File.extname(name).downcase]
+        skipped = SKIPPED_BY_SCOPE.fetch(scope, [])
+        if scope == :prose && PROSE_DIRECTIVE_PATTERNS.any? { |pattern| content.match?(pattern) }
+          raise SecurityError, "Potentially malicious command_injection pattern detected in artifact content"
+        end
+
+        # Check each pattern category that applies to this artifact
         dangerous_patterns.each do |category, patterns|
+          next if skipped.include?(category)
+
           patterns.each do |pattern|
             if content.match?(pattern)
               raise SecurityError, "Potentially malicious #{category} pattern detected in artifact content"

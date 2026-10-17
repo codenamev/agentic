@@ -328,7 +328,7 @@ module Agentic
       end
 
       # Content validation (via Security::Sanitizer)
-      Security::Sanitizer.sanitize_file_content(artifact.content, artifact.type)
+      Security::Sanitizer.sanitize_file_content(artifact.content, artifact.type, name: artifact.name)
 
       # Reference validation
       artifact.references.each do |ref|
