@@ -48,6 +48,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency "ostruct"
   spec.add_dependency "logger" # bundled gem as of Ruby 3.5 - declare what you require
   spec.add_dependency "cgi"    # trimmed to a bundled gem in Ruby 3.5; used for CGI.escape
+  spec.add_dependency "concurrent-ruby", "~> 1.0" # Observability::EventPipeline's thread pool; only reached us through dry-core, which asks the same
+  spec.add_dependency "tsort" # bundled gem as of Ruby 4.1; ArtifactGraph's sort and cycle detection
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html
