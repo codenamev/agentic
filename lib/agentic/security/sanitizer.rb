@@ -220,39 +220,42 @@ module Agentic
         }
       end
 
-      # Artifact types whose content is prose or data rather than code. The
-      # command- and code-injection denylists describe things a code file
-      # could DO; in a README a backtick is a code span and `system(` is a
-      # sentence about Ruby. Any type not listed here, including unknown
-      # ones, keeps every check.
-      PROSE_ARTIFACT_TYPES = %i[markdown text json yaml].freeze
+      # Which denylists an artifact may skip, by file extension. The command-
+      # and code-injection lists describe things a code file could DO; in a
+      # README a backtick is a code span and `system(` is a sentence about
+      # Ruby, and a static match on UNION SELECT inside a .sql file is a
+      # false-positive generator, not a check.
+      #
+      # The extension decides, never the declared type: the type can come
+      # straight from the model's response (FileGenerationCapability reads it
+      # from the JSON), so it must not be able to loosen the checks on a .rb
+      # or .sh file. Without a name nothing is relaxed. Only formats nothing
+      # executes are listed: YAML and JSON are config that tools run (ERB in
+      # a Rails database.yml, a CI workflow's run: step, a package.json
+      # script). Extensions not listed here keep every check.
+      RELAXED_SCOPE_BY_EXTENSION = {".md" => :prose, ".txt" => :prose, ".sql" => :sql}.freeze
 
-      # Artifact types whose whole point is to contain SQL, where a static
-      # match on UNION SELECT is a false-positive generator, not a check.
-      SQL_ARTIFACT_TYPES = %i[sql].freeze
+      # Lists each relaxed scope may skip. Everything else always runs.
+      SKIPPED_BY_SCOPE = {
+        prose: %i[command_injection code_injection],
+        sql: %i[sql_injection]
+      }.freeze
 
-      # When the file name is known, its extension - not the declared
-      # type - decides whether any list is skipped. The declared type can
-      # come straight from the model's response (FileGenerationCapability
-      # reads it from the JSON), so a type must never be able to loosen
-      # the checks on a .rb or .sh file. Only formats nothing executes
-      # are listed: YAML and JSON are config that tools run (ERB in a
-      # Rails database.yml, a CI workflow's run: step, a package.json
-      # script), so they keep every check. Extensions not listed here get
-      # every check, whatever the type says.
-      RELAXED_SCOPE_BY_EXTENSION = {".md" => :markdown, ".txt" => :text, ".sql" => :sql}.freeze
+      # Markdown is not entirely inert: agent harnesses expand !`cmd` in
+      # command and skill files (Claude Code's .claude/commands/*.md and
+      # SKILL.md) at prompt time. Prose keeps this one command check.
+      PROSE_DIRECTIVE_PATTERNS = [/!`[^`]*`/].freeze
 
       # Class method: Validate file content for security threats
       #
       # Checks artifact content for malicious patterns before writing to workspace.
       # Raises SecurityError if threats are detected. Which denylists apply
-      # depends on the artifact's scope: code gets all of them, prose and
-      # data (PROSE_ARTIFACT_TYPES) skip the command- and code-injection
-      # lists, SQL (SQL_ARTIFACT_TYPES) skips the SQL list. The encoding
-      # check and the file-system list apply to everything. With a name:,
-      # the scope is the file extension (RELAXED_SCOPE_BY_EXTENSION) and
-      # the declared type only selects the type-specific validators;
-      # without one, the declared type is the scope.
+      # depends on the file extension in name: (RELAXED_SCOPE_BY_EXTENSION):
+      # .md and .txt skip the command- and code-injection lists but keep a
+      # check for executable Markdown directives, .sql skips the SQL list,
+      # everything else - including any call without a name - runs every
+      # list. The declared type only selects the type-specific validators.
+      # The encoding check and the file-system list apply to everything.
       #
       # @param content [String] File content to validate
       # @param artifact_type [Symbol] Type of artifact (:ruby_class, :javascript_module, etc.)
@@ -302,12 +305,13 @@ module Agentic
           ]
         }
 
-        scope = name ? RELAXED_SCOPE_BY_EXTENSION[File.extname(name).downcase] : artifact_type
-        skipped = []
-        skipped.push(:command_injection, :code_injection) if PROSE_ARTIFACT_TYPES.include?(scope)
-        skipped.push(:sql_injection) if SQL_ARTIFACT_TYPES.include?(scope)
+        scope = name && RELAXED_SCOPE_BY_EXTENSION[File.extname(name).downcase]
+        skipped = SKIPPED_BY_SCOPE.fetch(scope, [])
+        if scope == :prose && PROSE_DIRECTIVE_PATTERNS.any? { |pattern| content.match?(pattern) }
+          raise SecurityError, "Potentially malicious command_injection pattern detected in artifact content"
+        end
 
-        # Check each pattern category that applies to this artifact type
+        # Check each pattern category that applies to this artifact
         dangerous_patterns.each do |category, patterns|
           next if skipped.include?(category)
 
