@@ -2,7 +2,6 @@
 
 require "digest"
 require "securerandom"
-require "base64"
 require "openssl"
 require "json"
 
