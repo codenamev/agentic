@@ -2,8 +2,6 @@
 
 require "async"
 require "async/queue"
-require_relative "event_pipeline"
-require_relative "event_context"
 
 module Agentic
   module Observability

@@ -1,10 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "artifact"
-require_relative "artifact_generation_result"
-require_relative "workspace"
-require_relative "capabilities/file_generation_capability"
-
 module Agentic
   # Coordinates artifact generation using LLM agents
   #

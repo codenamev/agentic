@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "config"
-
 module Agentic
   module Security
     # Mixin to add security-aware error handling to existing error classes

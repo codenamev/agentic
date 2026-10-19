@@ -3,7 +3,6 @@
 require "thor"
 require "json"
 require "yaml"
-require_relative "../human_intervention/portal"
 
 module Agentic
   class CLI
