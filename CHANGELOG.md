@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Deprecated
+- `HumanIntervention::AuthenticationSystem` (and the `Portal`'s built-in authenticator) is deprecated and will be removed in the next minor release. Its password hashing is a single SHA-256 round labelled `pbkdf2_sha256`, it compares secrets with `==`, and the gem's charter excludes accounts. Constructing an `Authenticator` now emits a `:deprecated`-category warning (shown when `Warning[:deprecated]` is enabled). Authenticate in the host application instead (#58)
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
