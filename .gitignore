@@ -13,3 +13,6 @@
 .env
 # plan execution results written by the CLI to the current directory
 result-*.json
+
+# per-leg lockfiles, resolved by CI on each Ruby
+/gemfiles/*.lock
