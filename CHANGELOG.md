@@ -2,6 +2,8 @@
 
 ### Changed
 - **Ruby floor raised to 3.2** (`required_ruby_version = ">= 3.2"`). The old `>= 3.0.0` claim was never true: the locked `async 2.24` (and `console`, `io-event` through it) already require Ruby 3.1, and Ruby 3.0/3.1 are EOL. CI now tests 3.2, 3.3, 3.4 and latest stable instead of a single pinned 3.2.4. Closes #15.
+- Bound the six previously unconstrained runtime dependencies in the gemspec: `ruby-openai ">= 7.1", "< 9"` (7.x and 8.x both verified against the suite), and `dry-schema ~> 1.13`, `zeitwerk ~> 2.6`, `ostruct ~> 0.6`, `logger ~> 1.6`, `cgi ~> 0.4` at their locked minors. Adding constraints where none existed is semver-visible: ship this as a minor bump. Closes #16.
+- Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
 
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
