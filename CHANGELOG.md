@@ -1,6 +1,10 @@
 ## [Unreleased]
 
+### Removed
+- `Security::SecureErrorMixin.secure_error_class!`, the class-level switch that was meant to rewrite `#message`/`#to_s`/`#inspect` at construction. Nothing in the gem ever called it, so `LlmError#message` was never sanitized despite the mixin's docs. Sanitization is opt-in through the `safe_*` accessors, `to_secure_hash`, and `log_securely`, which is how every caller already used it. (Never shipped in a release; it arrived with the mainline port after 0.2.0.)
+
 ### Fixed
+- `LlmClient` logs provider, timeout, parse, and unexpected errors through `safe_message` instead of the raw message, so an API key echoed back in a provider error body no longer reaches the log line
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 
