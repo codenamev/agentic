@@ -79,6 +79,9 @@ RSpec.describe Agentic::AgentAssemblyEngine do
     )
   end
 
+  # An agent spec whose words match no capability name, for description-only inference
+  let(:plain_spec) { Agentic::AgentSpecification.new(name: "Worker", description: "", instructions: "") }
+
   # Define a sample task for testing
   let(:task) do
     agent_spec = Agentic::AgentSpecification.new(
@@ -152,6 +155,73 @@ RSpec.describe Agentic::AgentAssemblyEngine do
       requirements = engine.analyze_requirements(task)
       expect(requirements["code_generation"][:importance]).to be > 0.5
     end
+
+    context "with capabilities the registry holds beyond the built-in names" do
+      def task_for(description)
+        Agentic::Task.new(description: description, agent_spec: plain_spec)
+      end
+
+      def register_simple(name, description)
+        capability = Agentic::CapabilitySpecification.new(
+          name: name,
+          description: description,
+          version: "1.0.0",
+          inputs: {text: {type: "string", required: true, description: "Input text"}},
+          outputs: {result: {type: "string", description: "Output"}}
+        )
+        registry.register(capability, Agentic::CapabilityProvider.new(
+          capability: capability,
+          implementation: ->(inputs) { {result: inputs[:text]} }
+        ))
+      end
+
+      before do
+        register_simple("summarization", "Summarizes text")
+        register_simple("brainstorming", "Generates ideas")
+        register_simple("structured_extraction", "Extracts structured data")
+        register_simple("invoice_parsing", "Parses invoices")
+      end
+
+      it "infers any registered capability the description mentions" do
+        {
+          "Summarize this quarterly report into five bullet points" => "summarization",
+          "Brainstorm ten names for a coffee brand" => "brainstorming",
+          "Extract structured data from the attached invoice" => "structured_extraction",
+          "Run invoice parsing on the attached PDF" => "invoice_parsing"
+        }.each do |description, capability|
+          requirements = engine.analyze_requirements(task_for(description))
+          expect(requirements.keys).to include(capability), "expected #{capability.inspect} from #{description.inspect}"
+        end
+      end
+
+      it "matches a name only at a word boundary" do
+        register_simple("db", "Database access")
+        register_simple("ai", "Chat with a model")
+        requirements = engine.analyze_requirements(task_for("Maintain the feedback form"))
+        expect(requirements.keys).not_to include("db", "ai")
+
+        requirements = engine.analyze_requirements(task_for("Load the db and ask the ai"))
+        expect(requirements.keys).to include("db", "ai")
+      end
+
+      it "does not infer names nothing has registered" do
+        requirements = engine.analyze_requirements(task_for("Generate a UML diagram and run the dependency analysis"))
+        expect(requirements.keys).not_to include("uml_generation", "dependency_analysis")
+      end
+
+      it "selects the inferred capability through the default strategy" do
+        strategy = Agentic::DefaultCompositionStrategy.new
+        requirements = engine.analyze_requirements(task_for("Extract structured data via invoice parsing"))
+        names = engine.select_capabilities(requirements, strategy).map { |c| c[:name] }
+        expect(names).to include("structured_extraction", "invoice_parsing")
+      end
+    end
+
+    it "infers nothing from the description when the registry is empty" do
+      registry.clear
+      requirements = engine.analyze_requirements(Agentic::Task.new(description: "Search the web", agent_spec: plain_spec))
+      expect(requirements.keys).to eq(["text_generation"])
+    end
   end
 
   describe "#select_capabilities" do
@@ -176,6 +246,17 @@ RSpec.describe Agentic::AgentAssemblyEngine do
       capabilities = engine.select_capabilities(requirements, strategy)
       expect(capabilities.size).to be >= 2
       expect(capabilities.map { |c| c[:name] }).to include("code_generation", "text_generation")
+    end
+
+    it "selects a capability once when it is both required and a dependency" do
+      requirements = {
+        "code_generation" => {importance: 0.8, version_constraint: nil},
+        "text_generation" => {importance: 0.3, version_constraint: nil}
+      }
+
+      names = engine.select_capabilities(requirements, strategy).map { |c| c[:name] }
+      expect(names).to eq(names.uniq)
+      expect(names).to contain_exactly("code_generation", "text_generation")
     end
 
     it "adds a default text_generation capability when requirements are empty" do
