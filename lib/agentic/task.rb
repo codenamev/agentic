@@ -21,6 +21,10 @@ module Agentic
     include Agentic::Observable
 
     attr_reader :id, :description, :agent_spec, :input, :output, :status, :failure, :ready_to_execute, :workspace, :artifact_mode
+
+    # @return [Array<String>] Capability names the plan chose for this task;
+    #   assembly honors these before inferring from the description
+    attr_reader :capabilities
     attr_accessor :retry_count, :output_schema_name
 
     # @return [Object, nil] Arbitrary domain object carried by the task,
@@ -36,8 +40,10 @@ module Agentic
     # @param output_schema_name [Symbol, nil] Name of the output schema to use for structured output
     # @param artifact_mode [Boolean] Whether this task generates artifacts (default: false)
     # @return [Task] A new task instance
-    def initialize(description:, agent_spec:, input: {}, payload: nil, workspace: nil, output_schema_name: nil, artifact_mode: false)
+    # @param capabilities [Array<String>] Capability names chosen at plan time (default: none)
+    def initialize(description:, agent_spec:, input: {}, payload: nil, workspace: nil, output_schema_name: nil, artifact_mode: false, capabilities: [])
       @id = SecureRandom.uuid
+      @capabilities = Array(capabilities).map(&:to_s)
       @description = description
 
       # Convert agent_spec to AgentSpecification if it's a hash
@@ -71,7 +77,8 @@ module Agentic
       new(
         description: definition.description,
         agent_spec: definition.agent,
-        input: input
+        input: input,
+        capabilities: definition.respond_to?(:capabilities) ? definition.capabilities : []
       )
     end
 

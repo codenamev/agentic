@@ -71,6 +71,10 @@ module Agentic
       # Extract requirements from the task description and agent specification
       requirements = {}
 
+      # Capabilities the plan named come first, at full importance: the
+      # plan's choice is honored and inference below only fills gaps
+      seed_planned_capabilities(task, requirements)
+
       # Use the task description to infer capabilities
       infer_capabilities_from_description(task.description, requirements)
 
@@ -316,6 +320,18 @@ module Agentic
     # @param description [String] The task description
     # @param requirements [Hash] The requirements hash to update
     # @return [void]
+    # Seed requirements with the capabilities the planner chose for the task
+    # @param task [Task] The task, which may carry plan-time capability names
+    # @param requirements [Hash] The requirements hash to seed
+    # @return [void]
+    def seed_planned_capabilities(task, requirements)
+      return unless task.respond_to?(:capabilities)
+
+      Array(task.capabilities).each do |name|
+        requirements[name.to_s] = {importance: 1.0, version_constraint: nil}
+      end
+    end
+
     def infer_capabilities_from_description(description, requirements)
       # Extract capability names from description using simple pattern matching
       # This is a basic implementation that should be enhanced with NLP or LLM-based analysis
