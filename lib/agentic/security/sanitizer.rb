@@ -104,6 +104,15 @@ module Agentic
         :connection_string, :email, :file_path, :phone
       ].freeze
 
+      # Spans that must survive sanitization untouched. A UUID whose middle
+      # groups happen to be all digits (e.g. 73fb9a6e-9973-4748-87aa-…) matches
+      # the loose phone pattern and would otherwise come out as
+      # 73fb9a6e-[REDACTED_PHONE]-87aa-…, corrupting task/dependency ids that
+      # flow through TaskFailure#context and error messages.
+      PROTECTED_SPANS = [
+        /\b\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\b/ # UUID
+      ].freeze
+
       attr_reader :security_level, :custom_patterns, :replacements
 
       def initialize(security_level: SECURITY_LEVEL_STANDARD, custom_patterns: {}, replacements: {})
@@ -397,7 +406,7 @@ module Agentic
         cache_key = "#{content.hash}_#{context}"
         return @performance_cache[cache_key] if @performance_cache[cache_key]
 
-        sanitized = content.dup
+        sanitized, protected_spans = mask_protected_spans(content)
 
         patterns_for(context).each do |pattern_type, patterns|
           replacement = @replacements[pattern_type] || "[REDACTED]"
@@ -407,12 +416,36 @@ module Agentic
           end
         end
 
+        sanitized = restore_protected_spans(sanitized, protected_spans)
+
         # Cache result for performance (limit cache size)
         if @performance_cache.size < 1000
           @performance_cache[cache_key] = sanitized
         end
 
         sanitized
+      end
+
+      # Swap protected spans (UUIDs) for placeholders that no PII pattern can
+      # match, so a later restore puts the originals back verbatim.
+      def mask_protected_spans(content)
+        spans = []
+        masked = content.dup
+
+        PROTECTED_SPANS.each do |pattern|
+          masked = masked.gsub(pattern) do |span|
+            spans << span
+            "\u{E000}uuid#{spans.size - 1}\u{E001}"
+          end
+        end
+
+        [masked, spans]
+      end
+
+      def restore_protected_spans(content, spans)
+        return content if spans.empty?
+
+        content.gsub(/\u{E000}uuid(\d+)\u{E001}/) { spans[Regexp.last_match(1).to_i] }
       end
 
       # Sanitize hash content recursively
