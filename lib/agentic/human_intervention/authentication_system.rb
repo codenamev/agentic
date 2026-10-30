@@ -28,6 +28,11 @@ module Agentic
     # - Uses Security module patterns for consistent security handling
     # - Integrates with existing role definitions from Portal
     # - Follows performance optimization patterns for session caching
+    #
+    # @deprecated Will be removed in the next minor release. The password
+    #   hasher is one SHA-256 round mislabelled as PBKDF2 and secrets are
+    #   compared with ==, and the gem's charter excludes accounts.
+    #   Authenticate in the host application. See codenamev/agentic#58.
     class AuthenticationSystem
       # Authentication methods
       module AuthMethod
@@ -363,7 +368,13 @@ module Agentic
 
       # Authentication and authorization manager
       class Authenticator
+        DEPRECATION_MESSAGE = "Agentic::HumanIntervention::AuthenticationSystem is deprecated and will be " \
+          "removed in the next minor release. Its password hashing is a single SHA-256 round and it " \
+          "compares secrets with ==; authenticate in your host application instead. " \
+          "See https://github.com/codenamev/agentic/issues/58"
+
         def initialize
+          warn(DEPRECATION_MESSAGE, category: :deprecated, uplevel: 1)
           @users = {}
           @sessions = {}
           @api_keys = {}
