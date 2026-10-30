@@ -6,11 +6,17 @@ module Agentic
 
     configurable :id, :name, :role, :purpose, :backstory, :instructions, :tools, :capabilities, :llm_client
 
+    # @return [GenerationStats, nil] Token usage of the most recent LLM
+    #   response this agent produced; nil when the last execution did not
+    #   reach an LLM (capability path) or the provider reported no usage
+    attr_reader :last_stats
+
     # Initialize with default values
     def initialize
       @capabilities = {}
       @tools = Set.new
       @llm_client = nil
+      @last_stats = nil
     end
 
     # Executes a task using this agent
@@ -42,8 +48,9 @@ module Agentic
     #   execution is available, which cannot enforce a schema
     # @raise [Errors::AgentNotConfiguredError] when no execution path exists
     def execute_with_schema(prompt, schema)
+      @last_stats = nil
       if @llm_client
-        response = @llm_client.complete(build_messages(prompt), output_schema: schema)
+        response = remember_stats(@llm_client.complete(build_messages(prompt), output_schema: schema))
         if response.successful?
           response.content
         else
@@ -178,12 +185,13 @@ module Agentic
     # @param prompt [String] The prompt to execute
     # @return [String] The response
     def execute_prompt(prompt)
+      @last_stats = nil
       # If the agent has a text_generation capability, use it
       if has_capability?("text_generation")
         execute_capability("text_generation", {prompt: prompt})[:response]
       elsif @llm_client
         # Use the configured LLM client
-        response = @llm_client.complete(build_messages(prompt))
+        response = remember_stats(@llm_client.complete(build_messages(prompt)))
         if response.successful?
           response.content
         else
@@ -192,6 +200,14 @@ module Agentic
       else
         raise Errors::AgentNotConfiguredError
       end
+    end
+
+    # Keeps the response's token usage where Task#perform can read it
+    # @param response [LlmResponse] The response just received
+    # @return [LlmResponse] The same response
+    def remember_stats(response)
+      @last_stats = response.stats if response.respond_to?(:stats)
+      response
     end
 
     # Builds messages array for LLM completion

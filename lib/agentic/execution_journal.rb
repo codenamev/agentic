@@ -25,8 +25,18 @@ module Agentic
     # Replayed journal state: everything a resuming process needs to know
     ReplayedState = Struct.new(
       :plan_id, :status, :completed_task_ids, :failed_task_ids, :outputs, :failures, :events, :descriptions, :durations, :duration_samples, :damage,
+      :tokens,
       keyword_init: true
     ) do
+      # Token usage summed over every task_succeeded line that carried it.
+      # nil when no line did (older journals, or runs that never reached an
+      # LLM) - unknown is not zero, so it is never reported as zero.
+      # @return [Integer, nil] Total tokens across recorded tasks
+      def total_tokens
+        totals = tokens.values.map { |t| t[:total_tokens] }.compact
+        totals.empty? ? nil : totals.sum
+      end
+
       # Whether any lines were torn, mis-encoded, or shape-broken.
       # Tolerant replay salvages around damage and reports it here;
       # a recovery tool should check this and say so out loud.
@@ -110,7 +120,8 @@ module Agentic
           record(:task_started, task_id: task_id, description: task.description)
         end,
         after_task_success: chain(hooks[:after_task_success]) do |task_id:, task:, result:, duration:|
-          record(:task_succeeded, task_id: task_id, description: task.description, duration: duration, output: result.output)
+          record(:task_succeeded, task_id: task_id, description: task.description, duration: duration, output: result.output,
+            **token_fields(result))
         end,
         after_task_failure: chain(hooks[:after_task_failure]) do |task_id:, task:, failure:, duration:|
           record(:task_failed, task_id: task_id, description: task.description, duration: duration,
@@ -180,7 +191,8 @@ module Agentic
         descriptions: {},
         durations: {},
         duration_samples: Hash.new { |h, k| h[k] = [] },
-        damage: []
+        damage: [],
+        tokens: {}
       )
 
       return state unless File.exist?(path)
@@ -221,6 +233,7 @@ module Agentic
           state.failed_task_ids.delete(task_id)
           state.failures.delete(task_id)
           state.outputs[task_id] = entry[:output]
+          state.tokens[task_id] = entry.slice(:prompt_tokens, :completion_tokens, :total_tokens) if entry.key?(:total_tokens)
           if entry[:description] && entry[:duration]
             state.durations[entry[:description]] = entry[:duration]
             state.duration_samples[entry[:description]] << entry[:duration]
@@ -241,6 +254,17 @@ module Agentic
     end
 
     private
+
+    # Token usage fields for a task_succeeded line. Absent (not zero) when
+    # the result carries no stats, so a replay can tell "unknown" from "free".
+    # @param result [TaskResult] The task's result
+    # @return [Hash] prompt/completion/total token counts, or empty
+    def token_fields(result)
+      stats = result.respond_to?(:stats) ? result.stats : nil
+      return {} unless stats
+
+      {prompt_tokens: stats.prompt_tokens, completion_tokens: stats.completion_tokens, total_tokens: stats.total_tokens}
+    end
 
     # Wraps a journaling block so an existing hook still runs afterwards
     def chain(existing, &journal_block)

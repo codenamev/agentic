@@ -132,7 +132,8 @@ module Agentic
         TaskResult.new(
           task_id: @id,
           success: true,
-          output: @output
+          output: @output,
+          stats: stats_from(agent)
         )
       rescue => e
         @failure = TaskFailure.from_exception(e, {
@@ -158,9 +159,17 @@ module Agentic
         TaskResult.new(
           task_id: @id,
           success: false,
-          failure: @failure
+          failure: @failure,
+          stats: stats_from(agent)
         )
       end
+    end
+
+    # Token usage of the agent's most recent LLM response, when it reports one
+    # @param agent [Agent] The agent that just executed this task
+    # @return [GenerationStats, nil]
+    def stats_from(agent)
+      agent.last_stats if agent.respond_to?(:last_stats)
     end
 
     # Retries a failed task
