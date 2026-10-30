@@ -97,11 +97,10 @@ module Agentic
         a.backstory = agent_data[:agent][:backstory]
       end
 
-      # Add capabilities
+      # Add capabilities, resolving stored versions that have since been bumped
       agent_data[:capabilities].each do |capability|
-        agent.add_capability(capability[:name], capability[:version])
-      rescue => e
-        @logger.warn("Failed to add capability: #{capability[:name]} v#{capability[:version]} - #{e.message}")
+        version = resolve_capability_version(id_or_name, capability[:name], capability[:version])
+        agent.add_capability(capability[:name], version)
       end
 
       agent
@@ -234,6 +233,26 @@ module Agentic
     end
 
     private
+
+    # Resolve a stored capability version against the current registry.
+    # Exact match wins; otherwise the newest same-major, minor-or-higher
+    # version is used and the upgrade is logged. A major bump or a removed
+    # capability raises at load time rather than returning a degraded agent.
+    # @raise [Errors::CapabilityNotFoundError] when no compatible version is registered
+    def resolve_capability_version(agent_ref, name, stored_version)
+      return stored_version if stored_version.nil? || @registry.get(name, stored_version)
+
+      resolved = @registry.resolve_compatible_version(name, stored_version)
+      unless resolved
+        raise Errors::CapabilityNotFoundError.new(
+          name,
+          context: "agent '#{agent_ref}' was stored with v#{stored_version} and no compatible version is registered"
+        )
+      end
+
+      @logger.info("Upgraded capability #{name} from v#{stored_version} to v#{resolved} for agent '#{agent_ref}'")
+      resolved
+    end
 
     def default_storage_path
       # Use a default path within the user's home directory

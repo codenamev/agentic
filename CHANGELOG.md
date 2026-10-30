@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Changed
+- `PersistentAgentStore#build_agent` resolves a stored capability version to the newest registered same-major, minor-or-higher version (logged at info) and raises `CapabilityNotFoundError` at load time on a major bump or a removed capability, instead of returning an agent with silently missing capabilities (#45). `agentic agent build` reports this as a clean error.
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
