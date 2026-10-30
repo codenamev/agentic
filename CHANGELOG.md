@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Security
+- `Workspace#add_artifact` now raises `SecurityError` when an artifact's on-disk destination resolves outside the workspace through a symlink (a symlinked target file or a symlinked parent directory), or passes through a dangling symlink. Symlinks that resolve inside the workspace keep working. The lexical `..`/absolute-path checks are unchanged. Behavior change for persistent workspaces on real project directories: an out-of-tree symlink such as `lib -> ../shared/lib` was previously written through and is now refused.
+
 ### Fixed
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
