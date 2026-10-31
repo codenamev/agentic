@@ -13,6 +13,7 @@
 - Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
 
 ### Fixed
+- `Security::Sanitizer.sanitize_file_content` scopes its denylists by file extension: with a `name:` ending in `.md` or `.txt` the command- and code-injection lists are skipped (inline code spans and sentences that mention `system(`/`eval(` no longer fail, though executable Markdown directives like `` !`cmd` `` still do), and `.sql` artifacts may contain SQL. `Workspace` passes the artifact name. The declared type never relaxes anything, so a call without a name and any other extension (`.rb`, `.sh`, `.yml`, `.json`, extension-less files) keep every check exactly as before; the encoding and file-system checks apply to all
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 
