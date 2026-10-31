@@ -12,6 +12,11 @@ module Agentic
   # @attr_reader [String] storage_path Directory to store agent configurations
   # @attr_reader [AgentCapabilityRegistry] registry The capability registry used for instantiation
   class PersistentAgentStore
+    # Agent ids and versions become path components under storage_path.
+    # Anything outside this shape (separators, "..", empty) never reaches
+    # the filesystem; see #path_component!.
+    PATH_COMPONENT = /\A[\w.-]+\z/
+
     attr_reader :storage_path, :registry
 
     # Initialize a new persistent agent store
@@ -40,7 +45,7 @@ module Agentic
     def store(agent, name: nil, metadata: {})
       # Generate ID if agent doesn't have one, and assign it back so that
       # storing the same agent again versions it instead of duplicating it
-      id = agent&.id || SecureRandom.uuid
+      id = path_component!(agent&.id || SecureRandom.uuid, "agent id")
       agent.id = id if agent&.respond_to?(:id=) && agent.id.nil?
 
       # Set the agent's ID if it doesn't have one yet
@@ -245,7 +250,7 @@ module Agentic
       index_path = File.join(@storage_path, "index.json")
       if File.exist?(index_path)
         begin
-          @index = JSON.parse(File.read(index_path), symbolize_names: true)
+          @index = prune_index(JSON.parse(File.read(index_path), symbolize_names: true))
         rescue JSON::ParserError => e
           @logger.error("Failed to parse agent store index: #{e.message}")
           @index = {}
@@ -261,7 +266,8 @@ module Agentic
 
     def save_to_storage(id, version, agent_data)
       # Create directory for the agent if it doesn't exist
-      agent_dir = File.join(@storage_path, id)
+      agent_dir = File.join(@storage_path, path_component!(id, "agent id"))
+      path_component!(version, "version")
       FileUtils.mkdir_p(agent_dir) unless File.directory?(agent_dir)
 
       # Save the agent data
@@ -290,12 +296,13 @@ module Agentic
     end
 
     def delete_from_storage(id, version)
+      agent_dir = File.join(@storage_path, path_component!(id, "agent id"))
+
       # Delete the agent file
-      agent_path = File.join(@storage_path, id, "#{version}.json")
+      agent_path = File.join(agent_dir, "#{path_component!(version, "version")}.json")
       File.delete(agent_path) if File.exist?(agent_path)
 
       # Delete the agent directory if it's empty
-      agent_dir = File.join(@storage_path, id)
       Dir.rmdir(agent_dir) if Dir.empty?(agent_dir)
     end
 
@@ -311,7 +318,11 @@ module Agentic
       return nil unless version
 
       # Load from storage (use string ID for file path)
-      agent_path = File.join(@storage_path, id.to_s, "#{version}.json")
+      agent_path = File.join(
+        @storage_path,
+        path_component!(id, "agent id"),
+        "#{path_component!(version, "version")}.json"
+      )
       return nil unless File.exist?(agent_path)
 
       begin
@@ -379,6 +390,39 @@ module Agentic
         # Increment the patch version
         parts = latest.split(".").map(&:to_i)
         "#{parts[0]}.#{parts[1]}.#{parts[2] + 1}"
+      end
+    end
+
+    # Ensure a value is safe to use as a single path component under
+    # storage_path. Ids can be set on an agent by whoever built it (including
+    # an LLM-driven assembly step) and the index file is plain JSON on disk,
+    # so neither is trusted to stay inside the store root on its own.
+    # @param value [String, Symbol] The id or version to check
+    # @param label [String] What the value is, for the error message
+    # @return [String] The value as a string
+    # @raise [ArgumentError] If the value is not a plain path component
+    def path_component!(value, label)
+      string = value.to_s
+      return string if path_component?(string)
+
+      raise ArgumentError, "#{label} #{string.inspect} is not a valid path component"
+    end
+
+    def path_component?(string)
+      string.match?(PATH_COMPONENT) && string != "." && string != ".."
+    end
+
+    # Drop index entries whose id or version could not have been written by
+    # this store. A hand-edited index must not turn into file access outside
+    # storage_path on the next read or delete.
+    # @param index [Hash] The parsed index
+    # @return [Hash] The index with unsafe entries removed
+    def prune_index(index)
+      index.select do |id, versions|
+        keys = versions.is_a?(Hash) ? [id, *versions.keys] : [id, versions]
+        unsafe = keys.reject { |key| path_component?(key.to_s) }
+        @logger.warn("Ignoring agent store index entry with unsafe key: #{unsafe.first.inspect}") unless unsafe.empty?
+        unsafe.empty?
       end
     end
 

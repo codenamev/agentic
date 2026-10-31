@@ -126,6 +126,26 @@ RSpec.describe Agentic::PersistentAgentStore do
       expect(versions.size).to eq(2)
       expect(versions.map { |v| v[:version] }).to include("1.0.0", "1.0.1")
     end
+
+    it "rejects an agent id that would leave the storage directory" do
+      agent.id = "../../escaped"
+
+      expect { store.store(agent) }.to raise_error(ArgumentError, /agent id/)
+      expect(File.exist?(File.join(temp_dir, "..", "escaped"))).to be false
+    end
+
+    it "rejects an agent id with a path separator" do
+      agent.id = "team/researcher"
+
+      expect { store.store(agent) }.to raise_error(ArgumentError, /agent id/)
+    end
+
+    it "accepts a caller-assigned plain id" do
+      agent.id = "researcher-v2_final"
+
+      expect(store.store(agent)).to eq("researcher-v2_final")
+      expect(File.exist?(File.join(temp_dir, "researcher-v2_final", "1.0.0.json"))).to be true
+    end
   end
 
   describe "#build_agent" do
@@ -164,6 +184,55 @@ RSpec.describe Agentic::PersistentAgentStore do
     it "returns nil for a non-existent agent" do
       built_agent = store.build_agent("non_existent")
       expect(built_agent).to be_nil
+    end
+  end
+
+  describe "path guarding" do
+    let(:store) { described_class.new(temp_dir) }
+    let(:agent) do
+      Agentic::Agent.build do |a|
+        a.role = "Test Agent"
+      end
+    end
+
+    before { agent.add_capability("text_generation") }
+
+    it "rejects a version that would leave the agent directory on read" do
+      id = store.store(agent)
+      outside = File.join(temp_dir, "outside.json")
+      File.write(outside, JSON.generate({agent: {role: "Smuggled"}, capabilities: []}))
+
+      expect { store.build_agent(id, version: "../outside") }.to raise_error(ArgumentError, /version/)
+    end
+
+    it "ignores index entries with unsafe ids and never touches paths outside the store" do
+      outside = File.join(temp_dir, "..", "agentic_store_escape_#{SecureRandom.hex(4)}.json")
+      File.write(outside, "{}")
+      File.write(File.join(temp_dir, "index.json"), JSON.generate({
+        "../agentic_store_escape" => {"1.0.0" => {name: "evil", timestamp: Time.now.iso8601, capabilities: [], metadata: {}}},
+        "legit" => {"1.0.0" => {name: "fine", timestamp: Time.now.iso8601, capabilities: [], metadata: {}}}
+      }))
+
+      logger = instance_double(Logger, warn: nil, error: nil, info: nil, debug: nil)
+      store = described_class.new(temp_dir, registry, logger: logger)
+
+      expect(logger).to have_received(:warn).with(/unsafe key/)
+      expect(store.all.map { |a| a[:id] }).to eq(["legit"])
+      expect(store.delete("../agentic_store_escape")).to be false
+      expect(File.exist?(outside)).to be true
+    ensure
+      File.delete(outside) if outside && File.exist?(outside)
+    end
+
+    it "ignores index entries with unsafe version keys" do
+      File.write(File.join(temp_dir, "index.json"), JSON.generate({
+        "legit" => {"../../etc/passwd" => {name: "evil", timestamp: Time.now.iso8601, capabilities: [], metadata: {}}}
+      }))
+
+      store = described_class.new(temp_dir)
+
+      expect(store.all).to be_empty
+      expect(store.version_history("legit")).to be_empty
     end
   end
 
