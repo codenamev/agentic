@@ -1,10 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "file_generation_capability"
-require_relative "../capability_specification"
-require_relative "../capability_provider"
-require_relative "../agent_capability_registry"
-
 module Agentic
   module Capabilities
     # Register the file_generation capability with the registry

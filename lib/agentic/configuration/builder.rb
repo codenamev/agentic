@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "schemas"
-
 module Agentic
   module Configuration
     # Configuration builder with fluent interface and validation

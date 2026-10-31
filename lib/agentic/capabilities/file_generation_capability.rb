@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../artifact"
-require_relative "../workspace"
 require "json"
 
 module Agentic

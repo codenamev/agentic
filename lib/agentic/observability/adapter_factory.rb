@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "base_adapter"
-require_relative "console_adapter"
-require_relative "file_adapter"
-
 module Agentic
   module Observability
     # Factory for creating observability adapters

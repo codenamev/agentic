@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "base_adapter"
-
 module Agentic
   module Observability
     # Console adapter for outputting events to STDOUT/STDERR

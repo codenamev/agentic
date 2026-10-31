@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "progress_tracker"
-
 module Agentic
   class CLI < Thor
     # Observer that provides real-time feedback during plan execution

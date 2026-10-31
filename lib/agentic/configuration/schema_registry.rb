@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "schema"
-
 module Agentic
   module Configuration
     # Central registry for managing configuration schemas

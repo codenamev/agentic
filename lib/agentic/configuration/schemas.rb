@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "schema"
-require_relative "schema_registry"
-
 module Agentic
   module Configuration
     # Pre-defined schemas for core Agentic configuration objects

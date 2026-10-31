@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "cache_manager"
-
 module Agentic
   module Performance
     # Performance optimization framework with caching, pooling, and monitoring

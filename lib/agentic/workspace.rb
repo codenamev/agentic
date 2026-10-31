@@ -2,10 +2,6 @@
 
 require "securerandom"
 require "fileutils"
-require_relative "artifact"
-require_relative "artifact_graph"
-require_relative "observable"
-require_relative "verification/artifact_verification_strategy"
 
 module Agentic
   # Manages an isolated workspace for artifact generation

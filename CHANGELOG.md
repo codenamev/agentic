@@ -13,6 +13,7 @@
 - Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
 
 ### Fixed
+- Every file under `lib/agentic/` now loads through Zeitwerk alone: the 57 `require_relative` lines between loader-managed files are gone, and `spec/zeitwerk_spec.rb` eager-loads the gem in a fresh process and fails on any `require_relative` that comes back
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 
