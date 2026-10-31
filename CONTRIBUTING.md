@@ -27,6 +27,12 @@ Thank you for your interest in contributing to Agentic! This guide will help you
 - **Testing**: Use RSpec for tests, aim for >90% coverage on new code
 - **Documentation**: Use YARD comments for all public APIs
 - **Commit Messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/)
+- **Ruby 3.2 lockfile**: CI's 3.2 leg installs from `gemfiles/ruby-3.2/Gemfile.lock` in frozen mode. If your change edits the `Gemfile` or the gemspec's dependencies, re-resolve that lockfile on a Ruby 3.2 interpreter too, or the 3.2 leg fails at install:
+
+  ```bash
+  BUNDLE_GEMFILE=gemfiles/ruby-3.2/Gemfile bundle lock
+  ```
+
 - **Dependencies**: If a change moves `Gemfile.lock` or the gemspec, check it for known advisories first:
 
   ```bash

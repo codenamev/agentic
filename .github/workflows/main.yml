@@ -15,6 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         ruby: ['3.2', '3.3', '3.4', 'ruby']
+        include:
+          - ruby: '3.2'
+            gemfile: gemfiles/ruby-3.2/Gemfile
+    env:
+      BUNDLE_GEMFILE: ${{ matrix.gemfile || 'Gemfile' }}
 
     steps:
     - uses: actions/checkout@v7
