@@ -17,6 +17,20 @@ updates:
       security:
         applies-to: security-updates
         patterns: ["*"]
+  - package-ecosystem: "bundler"
+    directory: "/gemfiles/ruby-3.2"
+    schedule:
+      interval: "monthly"
+    labels: ["loop:deps"]
+    cooldown:
+      default-days: 7
+    groups:
+      monthly-batch:
+        applies-to: version-updates
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
