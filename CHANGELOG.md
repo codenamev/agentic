@@ -1,11 +1,23 @@
 ## [Unreleased]
 
 ### Added
+- Plan format can declare a dependency graph: `TaskDefinition` gains optional `id`, `depends_on` and `needs` (all additive; flat plans serialize and load unchanged), `ExecutionPlan.from_hash` reads plan JSON back, and `ExecutionPlan#validate!` rejects duplicate ids, dangling references and cycles before a plan reaches the orchestrator
+- `TaskPlanner` asks the LLM for the dependency graph: every planned task now carries an `id`, a `depends_on` list and `needs` wiring (sent as `{name, task}` pairs because strict structured output cannot express a free-form object), which land on the `TaskDefinition` graph fields. Malformed edges are dropped with a warning; a graph that fails `ExecutionPlan#validate!` is kept for inspection and logged rather than silently flattened
+- Both CLI execution paths (`agentic plan --execute` and `agentic execute --plan`) now hand the declared graph to the orchestrator: `depends_on` becomes ordering, `needs` becomes named output wiring, and a plan whose graph cannot be scheduled fails fast with the validator's message instead of running as an unordered swarm. Flat plans execute exactly as before
+- Per-task failure tolerance: `TaskDefinition` and `PlanOrchestrator#add_task` accept `on_failure:` (`skip_dependents`, the default, or `continue`). A task marked `continue` that fails for good no longer skips its dependents; they run and can branch on `Task#succeeded?` / `Task#failure_of` (and `task.needs.succeeded?` / `failure_of` for named inputs) while `output_of` stays `nil`. Retries still run first, intervention-required failures never continue, and the plan status stays `:partial_failure`. The planner schema asks the LLM for the flag and both CLI execution paths pass it through (#23)
 - README documents the seven `PlanOrchestrator` lifecycle hooks: names, when each fires, keyword arguments, the inline-on-fiber caveat, and a timing example
 
+### Changed
+- **Ruby floor raised to 3.2** (`required_ruby_version = ">= 3.2"`). The old `>= 3.0.0` claim was never true: the locked `async 2.24` (and `console`, `io-event` through it) already require Ruby 3.1, and Ruby 3.0/3.1 are EOL. CI now tests 3.2, 3.3, 3.4 and latest stable instead of a single pinned 3.2.4. Closes #15.
+- Bound the six previously unconstrained runtime dependencies in the gemspec: `ruby-openai ">= 7.1", "< 9"` (7.x and 8.x both verified against the suite), and `dry-schema ~> 1.13`, `zeitwerk ~> 2.6`, `ostruct ~> 0.6`, `logger ~> 1.6`, `cgi ~> 0.4` at their locked minors. Adding constraints where none existed is semver-visible: ship this as a minor bump. Closes #16.
+- Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
+- Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
+
 ### Fixed
+- `Security::Sanitizer.sanitize_file_content` scopes its denylists by file extension: with a `name:` ending in `.md` or `.txt` the command- and code-injection lists are skipped (inline code spans and sentences that mention `system(`/`eval(` no longer fail, though executable Markdown directives like `` !`cmd` `` still do), and `.sql` artifacts may contain SQL. `Workspace` passes the artifact name. The declared type never relaxes anything, so a call without a name and any other extension (`.rb`, `.sh`, `.yml`, `.json`, extension-less files) keep every check exactly as before; the encoding and file-system checks apply to all
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
+- `EventDispatcher` integration slow-observer spec gets the same monotonic-clock + looser-bound treatment
 
 ## [0.3.0] - 2025-08-18
 
