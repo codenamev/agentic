@@ -1,0 +1,10 @@
+# frozen_string_literal: true
+
+# CI's Ruby 3.2 leg only. The root Gemfile.lock tracks what a consumer on a
+# maintained Ruby installs; this directory's lockfile holds what a 3.2
+# consumer can still install. No caps: Bundler's required_ruby_version check
+# picks 3.2-compatible releases on its own, and the `ruby` line keeps
+# Dependabot (which watches this directory) from bumping past them.
+ruby ">= 3.2", "< 3.3"
+
+eval_gemfile "../../Gemfile"
