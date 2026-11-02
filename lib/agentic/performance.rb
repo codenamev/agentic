@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "performance/cache"
-require_relative "performance/cache_manager"
-require_relative "performance/optimizer"
-
 module Agentic
   # Performance optimization framework for the Agentic system
   #

@@ -62,6 +62,27 @@ RSpec.describe Agentic::CLI do
         expect(output.string).to include("Agent Created")
       end
     end
+
+    describe "agent build" do
+      it "reports an incompatible stored capability as a clean error" do
+        allow(Agentic::UI).to receive(:with_spinner).and_yield
+        allow(Agentic::UI).to receive(:box) { |_title, body, **| body }
+
+        agent_store = instance_double(Agentic::PersistentAgentStore)
+        allow(agent_store).to receive(:build_agent).and_raise(
+          Agentic::Errors::CapabilityNotFoundError.new("summarization", context: "agent 'writer' was stored with v1.0.0")
+        )
+        allow(Agentic).to receive(:initialize_agent_assembly)
+        allow(Agentic).to receive(:agent_store).and_return(agent_store)
+
+        expect { described_class.start(["agent", "build", "writer"]) }.to raise_error(SystemExit) { |e|
+          expect(e.status).to eq(1)
+        }
+        expect(output.string).to include("could not be built")
+        expect(output.string).to include("summarization")
+        expect(output.string).to include("v1.0.0")
+      end
+    end
   end
 
   describe "config commands" do

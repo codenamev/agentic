@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "config"
-
 module Agentic
   module Security
     # Mixin that gives an error class sanitized accessors for logging.
