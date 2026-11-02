@@ -25,6 +25,7 @@
 - Every file under `lib/agentic/` now loads through Zeitwerk alone: the 57 `require_relative` lines between loader-managed files are gone, and `spec/zeitwerk_spec.rb` eager-loads the gem in a fresh process and fails on any `require_relative` that comes back
 - `require "agentic"` no longer depends on the dev bundle: `ArtifactGraph` runs on the standard library's `TSort` instead of rgl (which was never a declared dependency), the dead `require "base64"` in `AuthenticationSystem` is gone (a LoadError on Ruby >= 3.4 under Bundler), and `concurrent-ruby` and `tsort` are declared as the runtime dependencies they are. A spec now checks every `require` under lib/ against the gemspec
 - `ArtifactGraph#detect_cycles` returns the artifacts that actually form each cycle instead of listing every artifact in the graph
+- `LlmClient` logs provider, timeout, parse, and unexpected errors through `safe_message` instead of the raw message, so an API key echoed back in a provider error body no longer reaches the log line
 
 ### Security
 - `Workspace#add_artifact` now raises `SecurityError` when an artifact's on-disk destination resolves outside the workspace through a symlink (a symlinked target file or a symlinked parent directory), or passes through a dangling symlink. Symlinks that resolve inside the workspace keep working. The lexical `..`/absolute-path checks are unchanged. Behavior change for persistent workspaces on real project directories: an out-of-tree symlink such as `lib -> ../shared/lib` was previously written through and is now refused.
@@ -34,6 +35,9 @@
 
 ### Security
 - The CLI no longer steers the OpenAI key into `.agentic.yml`: `agentic config set` refuses keys containing token, key, secret, passw, or credential in any spelling, and values shaped like an OpenAI key, and the missing-token error and README point at `OPENAI_ACCESS_TOKEN` / `Agentic.configure`, which are the paths that actually work. Nothing ever read `api_token` from that file, and it is not gitignored.
+
+### Removed
+- `Security::SecureErrorMixin.secure_error_class!`, the class-level switch that was meant to rewrite `#message`/`#to_s`/`#inspect` at construction. Nothing in the gem ever called it, so `LlmError#message` was never sanitized despite the mixin's docs. Sanitization is opt-in through the `safe_*` accessors, `to_secure_hash`, and `log_securely`, which is how every caller already used it. (Never shipped in a release; it arrived with the mainline port after 0.2.0.)
 
 ## [0.3.0] - 2025-08-18
 
