@@ -324,7 +324,7 @@ module Agentic
       end
 
       # Content validation (via Security::Sanitizer)
-      Security::Sanitizer.sanitize_file_content(artifact.content, artifact.type)
+      Security::Sanitizer.sanitize_file_content(artifact.content, artifact.type, name: artifact.name)
 
       # Reference validation
       artifact.references.each do |ref|
@@ -358,10 +358,14 @@ module Agentic
 
     # Verify artifact quality using appropriate verification strategy
     #
+    # The strategy is chosen from the artifact's file extension, not its
+    # model-declared type, so a declared type can't steer a code file past
+    # the language-specific checks.
+    #
     # @param artifact [Artifact] Artifact to verify
     # @return [Verification::VerificationResult] Verification result
     def verify_artifact(artifact)
-      strategy = Verification::ArtifactVerificationStrategy.for_type(artifact.type)
+      strategy = Verification::ArtifactVerificationStrategy.for_artifact(artifact)
       result = strategy.verify(artifact)
 
       # Log verification result
