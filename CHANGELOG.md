@@ -20,6 +20,8 @@
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 - `EventDispatcher` integration slow-observer spec gets the same monotonic-clock + looser-bound treatment
 - Every file under `lib/agentic/` now loads through Zeitwerk alone: the 57 `require_relative` lines between loader-managed files are gone, and `spec/zeitwerk_spec.rb` eager-loads the gem in a fresh process and fails on any `require_relative` that comes back
+- `require "agentic"` no longer depends on the dev bundle: `ArtifactGraph` runs on the standard library's `TSort` instead of rgl (which was never a declared dependency), the dead `require "base64"` in `AuthenticationSystem` is gone (a LoadError on Ruby >= 3.4 under Bundler), and `concurrent-ruby` and `tsort` are declared as the runtime dependencies they are. A spec now checks every `require` under lib/ against the gemspec
+- `ArtifactGraph#detect_cycles` returns the artifacts that actually form each cycle instead of listing every artifact in the graph
 
 ### Security
 - `Workspace#add_artifact` now raises `SecurityError` when an artifact's on-disk destination resolves outside the workspace through a symlink (a symlinked target file or a symlinked parent directory), or passes through a dangling symlink. Symlinks that resolve inside the workspace keep working. The lexical `..`/absolute-path checks are unchanged. Behavior change for persistent workspaces on real project directories: an out-of-tree symlink such as `lib -> ../shared/lib` was previously written through and is now refused.
