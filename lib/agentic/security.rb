@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "security/sanitizer"
-require_relative "security/config"
-require_relative "security/secure_error_mixin"
-
 module Agentic
   # Security module providing comprehensive PII sanitization and secure error handling
   #

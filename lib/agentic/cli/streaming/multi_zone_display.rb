@@ -3,8 +3,6 @@
 require "tty-box"
 require "tty-cursor"
 require "tty-screen"
-require_relative "streaming_zone"
-require_relative "progress_zone"
 
 module Agentic
   class CLI < Thor

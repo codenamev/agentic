@@ -5,12 +5,14 @@
 - `TaskPlanner` asks the LLM for the dependency graph: every planned task now carries an `id`, a `depends_on` list and `needs` wiring (sent as `{name, task}` pairs because strict structured output cannot express a free-form object), which land on the `TaskDefinition` graph fields. Malformed edges are dropped with a warning; a graph that fails `ExecutionPlan#validate!` is kept for inspection and logged rather than silently flattened
 - Both CLI execution paths (`agentic plan --execute` and `agentic execute --plan`) now hand the declared graph to the orchestrator: `depends_on` becomes ordering, `needs` becomes named output wiring, and a plan whose graph cannot be scheduled fails fast with the validator's message instead of running as an unordered swarm. Flat plans execute exactly as before
 - Per-task failure tolerance: `TaskDefinition` and `PlanOrchestrator#add_task` accept `on_failure:` (`skip_dependents`, the default, or `continue`). A task marked `continue` that fails for good no longer skips its dependents; they run and can branch on `Task#succeeded?` / `Task#failure_of` (and `task.needs.succeeded?` / `failure_of` for named inputs) while `output_of` stays `nil`. Retries still run first, intervention-required failures never continue, and the plan status stays `:partial_failure`. The planner schema asks the LLM for the flag and both CLI execution paths pass it through (#23)
+- README documents the seven `PlanOrchestrator` lifecycle hooks: names, when each fires, keyword arguments, the inline-on-fiber caveat, and a timing example
 
 ### Changed
 - **Ruby floor raised to 3.2** (`required_ruby_version = ">= 3.2"`). The old `>= 3.0.0` claim was never true: the locked `async 2.24` (and `console`, `io-event` through it) already require Ruby 3.1, and Ruby 3.0/3.1 are EOL. CI now tests 3.2, 3.3, 3.4 and latest stable instead of a single pinned 3.2.4. Closes #15.
 - Bound the six previously unconstrained runtime dependencies in the gemspec: `ruby-openai ">= 7.1", "< 9"` (7.x and 8.x both verified against the suite), and `dry-schema ~> 1.13`, `zeitwerk ~> 2.6`, `ostruct ~> 0.6`, `logger ~> 1.6`, `cgi ~> 0.4` at their locked minors. Adding constraints where none existed is semver-visible: ship this as a minor bump. Closes #16.
 - Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
 - Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
+- `PersistentAgentStore#build_agent` resolves a stored capability version to the newest registered same-major, minor-or-higher version (logged at info) and raises `CapabilityNotFoundError` at load time on a major bump or a removed capability, instead of returning an agent with silently missing capabilities (#45). `agentic agent build` reports this as a clean error.
 - Default self-assembly infers capabilities from the registry instead of a hardcoded 11-name list, so every registered capability (built-in, composed, or user-registered) can be selected from a task description; keyword matches now require a word boundary, and `DefaultCompositionStrategy` no longer selects a capability twice when it is both required and a dependency
 
 ### Fixed
@@ -18,6 +20,13 @@
 - Test suite loads on Ruby 4.0: `benchmark` is a bundled (not default) gem there, so it is now declared in the Gemfile
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 - `EventDispatcher` integration slow-observer spec gets the same monotonic-clock + looser-bound treatment
+- Every file under `lib/agentic/` now loads through Zeitwerk alone: the 57 `require_relative` lines between loader-managed files are gone, and `spec/zeitwerk_spec.rb` eager-loads the gem in a fresh process and fails on any `require_relative` that comes back
+
+### Security
+- `Workspace#add_artifact` now raises `SecurityError` when an artifact's on-disk destination resolves outside the workspace through a symlink (a symlinked target file or a symlinked parent directory), or passes through a dangling symlink. Symlinks that resolve inside the workspace keep working. The lexical `..`/absolute-path checks are unchanged. Behavior change for persistent workspaces on real project directories: an out-of-tree symlink such as `lib -> ../shared/lib` was previously written through and is now refused.
+
+### Deprecated
+- `HumanIntervention::AuthenticationSystem` (and the `Portal`'s built-in authenticator) is deprecated and will be removed in the next minor release. Its password hashing is a single SHA-256 round labelled `pbkdf2_sha256`, it compares secrets with `==`, and the gem's charter excludes accounts. Constructing an `Authenticator` now emits a `:deprecated`-category warning (shown when `Warning[:deprecated]` is enabled). Authenticate in the host application instead (#58)
 
 ## [0.3.0] - 2025-08-18
 

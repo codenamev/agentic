@@ -3,10 +3,6 @@
 require "set"
 require "json"
 require "async"
-require_relative "observability/event_data"
-require_relative "observability/file_observer"
-require_relative "observability/adapter_factory"
-require_relative "observability/event_dispatcher"
 
 module Agentic
   # Unified observability engine for all event coordination
