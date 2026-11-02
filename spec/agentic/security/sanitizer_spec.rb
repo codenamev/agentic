@@ -78,6 +78,18 @@ RSpec.describe Agentic::Security::Sanitizer do
     end
 
     context "phone numbers" do
+      it "leaves UUIDs intact even when their digit groups look like a phone number" do
+        # 2nd + 3rd groups all-digit: matched the loose phone pattern before the guard
+        uuid = "73fb9a6e-9973-4748-87aa-3aeaa0c29af2"
+        text = "Dependency #{uuid} failed; call 555-123-4567"
+        sanitized = sanitizer.sanitize(text)
+
+        expect(sanitized).to include(uuid)
+        expect(sanitized).to include("[REDACTED_PHONE]")
+        expect(sanitized).not_to include("555-123-4567")
+        expect(sanitizer.sanitize({dependency_id: uuid})[:dependency_id]).to eq(uuid)
+      end
+
       it "sanitizes phone numbers" do
         text_with_phone = "Call me at 555-123-4567 or (555) 987-6543"
         sanitized = sanitizer.sanitize(text_with_phone)

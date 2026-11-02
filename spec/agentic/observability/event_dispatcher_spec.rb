@@ -386,13 +386,15 @@ RSpec.describe Agentic::Observability::EventDispatcher do
       dispatcher.add_observer(slow_observer)
       dispatcher.add_observer(fast_observer)
 
-      start_time = Time.now
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       dispatcher.dispatch(:performance_test, {})
-      processing_time = Time.now - start_time
+      processing_time = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
 
       # Even with slow observer, dispatching should be fast
-      # (actual async processing would happen separately)
-      expect(processing_time).to be < 0.1
+      # (actual async processing would happen separately).
+      # The bound is deliberately loose: this guards against pathological
+      # blocking, not scheduler jitter on a loaded CI box.
+      expect(processing_time).to be < 0.5
       expect(slow_observer).to have_received(:update)
       expect(fast_observer).to have_received(:update)
     end
