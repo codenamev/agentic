@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Added
+- Plan format can declare a dependency graph: `TaskDefinition` gains optional `id`, `depends_on` and `needs` (all additive; flat plans serialize and load unchanged), `ExecutionPlan.from_hash` reads plan JSON back, and `ExecutionPlan#validate!` rejects duplicate ids, dangling references and cycles before a plan reaches the orchestrator
+- `TaskPlanner` asks the LLM for the dependency graph: every planned task now carries an `id`, a `depends_on` list and `needs` wiring (sent as `{name, task}` pairs because strict structured output cannot express a free-form object), which land on the `TaskDefinition` graph fields. Malformed edges are dropped with a warning; a graph that fails `ExecutionPlan#validate!` is kept for inspection and logged rather than silently flattened
+- Both CLI execution paths (`agentic plan --execute` and `agentic execute --plan`) now hand the declared graph to the orchestrator: `depends_on` becomes ordering, `needs` becomes named output wiring, and a plan whose graph cannot be scheduled fails fast with the validator's message instead of running as an unordered swarm. Flat plans execute exactly as before
+- Per-task failure tolerance: `TaskDefinition` and `PlanOrchestrator#add_task` accept `on_failure:` (`skip_dependents`, the default, or `continue`). A task marked `continue` that fails for good no longer skips its dependents; they run and can branch on `Task#succeeded?` / `Task#failure_of` (and `task.needs.succeeded?` / `failure_of` for named inputs) while `output_of` stays `nil`. Retries still run first, intervention-required failures never continue, and the plan status stays `:partial_failure`. The planner schema asks the LLM for the flag and both CLI execution paths pass it through (#23)
+
+### Changed
+- **Ruby floor raised to 3.2** (`required_ruby_version = ">= 3.2"`). The old `>= 3.0.0` claim was never true: the locked `async 2.24` (and `console`, `io-event` through it) already require Ruby 3.1, and Ruby 3.0/3.1 are EOL. CI now tests 3.2, 3.3, 3.4 and latest stable instead of a single pinned 3.2.4. Closes #15.
+- Bound the six previously unconstrained runtime dependencies in the gemspec: `ruby-openai ">= 7.1", "< 9"` (7.x and 8.x both verified against the suite), and `dry-schema ~> 1.13`, `zeitwerk ~> 2.6`, `ostruct ~> 0.6`, `logger ~> 1.6`, `cgi ~> 0.4` at their locked minors. Adding constraints where none existed is semver-visible: ship this as a minor bump. Closes #16.
+- Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
+- Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
+
 ### Fixed
 - `require "agentic"` no longer depends on the dev bundle: `ArtifactGraph` runs on the standard library's `TSort` instead of rgl (which was never a declared dependency), the dead `require "base64"` in `AuthenticationSystem` is gone (a LoadError on Ruby >= 3.4 under Bundler), and `concurrent-ruby` and `tsort` are declared as the runtime dependencies they are. A spec now checks every `require` under lib/ against the gemspec
 - `ArtifactGraph#detect_cycles` returns the artifacts that actually form each cycle instead of listing every artifact in the graph
