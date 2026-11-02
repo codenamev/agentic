@@ -1,10 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "configuration/schema"
-require_relative "configuration/schema_registry"
-require_relative "configuration/schemas"
-require_relative "configuration/builder"
-
 module Agentic
   # Unified configuration system with schema validation and type checking
   #
