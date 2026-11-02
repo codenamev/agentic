@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "strategy_factory"
-require_relative "verification_hub"
-
 module Agentic
   module Verification
     # Helper methods for setting up verification using standardized patterns

@@ -356,8 +356,18 @@ module Agentic
         Agentic.initialize_agent_assembly
 
         # Build the agent
-        agent = UI.with_spinner("Building agent: #{id_or_name}") do
-          Agentic.agent_store.build_agent(id_or_name)
+        agent = begin
+          UI.with_spinner("Building agent: #{id_or_name}") do
+            Agentic.agent_store.build_agent(id_or_name)
+          end
+        rescue Errors::CapabilityNotFoundError => e
+          puts UI.box(
+            "Error",
+            "Agent '#{UI.colorize(id_or_name, :yellow)}' could not be built: #{e.message}",
+            padding: [1, 2, 1, 2],
+            style: {border: {fg: :red}}
+          )
+          exit 1
         end
 
         unless agent

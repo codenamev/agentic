@@ -42,7 +42,6 @@ module Agentic
       # @param dependencies [Hash] Strategy dependencies
       # @return [void]
       def add_strategy_from_factory(type, config: {}, **dependencies)
-        require_relative "strategy_factory"
         strategy = StrategyFactory.create(type, config: config, **dependencies)
         add_strategy(strategy)
       end
