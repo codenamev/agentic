@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "base_adapter"
-require_relative "file_observer"
-
 module Agentic
   module Observability
     # File adapter for logging events to local files

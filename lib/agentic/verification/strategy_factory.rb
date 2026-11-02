@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "verification_strategy"
-require_relative "llm_verification_strategy"
-require_relative "schema_verification_strategy"
-
 module Agentic
   module Verification
     # Factory for creating verification strategies with consistent configuration

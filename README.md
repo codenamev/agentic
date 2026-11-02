@@ -300,6 +300,49 @@ reactor. That means:
   (e.g. under Falcon), it joins the current event loop instead of nesting
   a new one; standalone, it creates its own and blocks until done.
 
+### Lifecycle hooks
+
+`PlanOrchestrator.new(lifecycle_hooks: {...})` takes a hash of callables
+keyed by hook name. Every hook has a no-op default, so pass only the ones
+you want. All seven fire at task boundaries and receive keyword arguments:
+
+| Hook | Fires | Keyword arguments |
+| --- | --- | --- |
+| `before_task_execution` | when a task is scheduled (it may still queue for a slot) | `task_id:`, `task:` |
+| `task_slot_acquired` | when the task obtains a concurrency slot | `task_id:`, `task:`, `waited:` (seconds spent queued) |
+| `before_agent_build` | before the task's agent is resolved | `task_id:`, `task:` |
+| `after_agent_build` | after the agent is resolved | `task_id:`, `task:`, `agent:`, `build_duration:` |
+| `after_task_success` | after the task returns a successful result | `task_id:`, `task:`, `result:`, `duration:` |
+| `after_task_failure` | after a failed result (or an unexpected exception), before retry and intervention policy run | `task_id:`, `task:`, `failure:`, `duration:` |
+| `plan_completed` | once every task has settled | `plan_id:`, `status:`, `execution_time:`, `tasks:`, `results:` |
+
+Hooks run inline on the task's fiber. Anything slower than a hash insert
+should hand off (enqueue onto an `Async::Queue`, say), or it stalls the
+task that called it. Accept `**` in your lambdas so a hook keeps working
+when a later version adds a keyword.
+
+```ruby
+timings = Hash.new { |h, k| h[k] = {} }
+
+orchestrator = Agentic::PlanOrchestrator.new(
+  concurrency_limit: 5,
+  lifecycle_hooks: {
+    task_slot_acquired: ->(task_id:, waited:, **) { timings[task_id][:queued] = waited },
+    after_task_success: ->(task_id:, duration:, **) { timings[task_id][:ran] = duration },
+    after_task_failure: ->(task_id:, failure:, duration:, **) {
+      timings[task_id].merge!(ran: duration, failure: failure)
+    },
+    plan_completed: ->(status:, execution_time:, **) {
+      puts "#{status} in #{execution_time.round(2)}s: #{timings.inspect}"
+    }
+  }
+)
+```
+
+Hooks are a construction-time seam, not a registry: to combine yours with
+hooks another component provides (the learning system builds a set, see
+below), wrap both callables in one lambda that calls each.
+
 ### When to reach for which layer
 
 Start with **capabilities** — lambdas with declared contracts — and call
