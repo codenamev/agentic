@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
-require "rgl/adjacency"
-require "rgl/traversal"
-require "rgl/topsort"
+require "tsort"
 
 module Agentic
-  # Manages graph of artifact relationships using RGL (Ruby Graph Library)
+  # Manages the graph of artifact relationships
   #
   # ArtifactGraph maintains a directed graph where nodes are artifacts and
   # edges represent "references" relationships. For example, if UserService.rb
@@ -16,6 +14,9 @@ module Agentic
   # - Dependent tracking (what depends on X?)
   # - Circular dependency detection
   # - Topological sorting (build order)
+  #
+  # Storage is a Hash from artifact name to the names it references; the
+  # standard library's TSort does the sorting and the cycle detection.
   #
   # @example Building a graph
   #   graph = ArtifactGraph.new
@@ -32,8 +33,8 @@ module Agentic
     include Enumerable
 
     def initialize
-      @graph = RGL::DirectedAdjacencyGraph.new
       @artifacts = {} # artifact_name => Artifact object
+      @references = {} # artifact_name => [names it references]
     end
 
     # Add an artifact node to the graph
@@ -58,20 +59,16 @@ module Agentic
     #   graph.add_node(artifact)
     def add_node(artifact)
       @artifacts[artifact.name] = artifact
-      @graph.add_vertex(artifact.name)
+      references = (@references[artifact.name] ||= [])
 
-      # Add edges for each reference: ref -> artifact
-      # (This means ref must come before artifact in topological sort)
       artifact.references.each do |ref_name|
-        # Ensure referenced vertex exists (even if artifact not added yet)
-        @graph.add_vertex(ref_name) unless @graph.has_vertex?(ref_name)
-        @graph.add_edge(ref_name, artifact.name)
+        # Ensure the referenced vertex exists (even if that artifact isn't added yet)
+        @references[ref_name] ||= []
+        references << ref_name unless references.include?(ref_name)
       end
     end
 
     # Get artifacts that the given artifact depends on (direct dependencies)
-    #
-    # With edges as ref -> artifact, dependencies are incoming edges.
     #
     # @param artifact [Artifact, String] Artifact object or artifact name
     # @return [Array<Artifact>] Artifacts this one directly references
@@ -80,18 +77,13 @@ module Agentic
     #   service = graph.find_node(name: "service.rb")
     #   deps = graph.dependencies_of(service) # => [user_artifact]
     def dependencies_of(artifact)
-      artifact_name = artifact.is_a?(String) ? artifact : artifact.name
-      return [] unless @graph.has_vertex?(artifact_name)
+      artifact_name = name_of(artifact)
+      return [] unless @references.key?(artifact_name)
 
-      # Find vertices that have edges pointing TO this artifact (incoming edges)
-      @graph.vertices.select { |v| @graph.has_edge?(v, artifact_name) }
-        .map { |name| @artifacts[name] }
-        .compact
+      @references[artifact_name].map { |name| @artifacts[name] }.compact
     end
 
     # Get artifacts that depend on the given artifact (reverse dependencies)
-    #
-    # With edges as ref -> artifact, dependents are outgoing edges.
     #
     # @param artifact [Artifact, String] Artifact object or artifact name
     # @return [Array<Artifact>] Artifacts that reference this one
@@ -100,17 +92,18 @@ module Agentic
     #   user = graph.find_node(name: "user.rb")
     #   dependents = graph.dependents_of(user) # => [service_artifact]
     def dependents_of(artifact)
-      artifact_name = artifact.is_a?(String) ? artifact : artifact.name
-      return [] unless @graph.has_vertex?(artifact_name)
+      artifact_name = name_of(artifact)
+      return [] unless @references.key?(artifact_name)
 
-      # Find vertices that this artifact has edges pointing TO (outgoing edges)
-      @graph.adjacent_vertices(artifact_name).map { |name| @artifacts[name] }.compact
+      @references.filter_map do |name, references|
+        @artifacts[name] if references.include?(artifact_name)
+      end
     end
 
     # Detect circular dependencies in the graph
     #
-    # Attempts to perform topological sort - if it fails or returns fewer vertices
-    # than the graph contains, cycles exist.
+    # Each strongly connected component with more than one artifact, or a
+    # single artifact that references itself, is a cycle.
     #
     # @return [Array<Array<String>>] Arrays of artifact names forming cycles
     #
@@ -122,19 +115,7 @@ module Agentic
     #     end
     #   end
     def detect_cycles
-      # Try topsort
-      sorted = @graph.topsort_iterator.to_a
-
-      # If sorted result has fewer vertices than the graph, there's a cycle
-      if sorted.size < @graph.vertices.size
-        # Return all vertices as a single cycle (exact cycle determination is complex)
-        [@graph.vertices.to_a]
-      else
-        [] # No cycles
-      end
-    rescue
-      # If topsort fails for any reason, assume cycle
-      [@graph.vertices.to_a]
+      strongly_connected_components.select { |component| cycle?(component) }
     end
 
     # Check if graph has circular dependencies
@@ -156,14 +137,11 @@ module Agentic
     #   sorted = graph.topological_sort
     #   sorted.each { |a| puts "Generate: #{a.name}" }
     def topological_sort
-      # Check for cycles first
-      cycles = detect_cycles
-      if cycles.any?
-        raise CircularDependencyError, "Circular dependency detected: #{cycles.first.join(" -> ")}"
-      end
+      strongly_connected_components.map do |component|
+        raise CircularDependencyError, "Circular dependency detected: #{component.join(" -> ")}" if cycle?(component)
 
-      sorted_names = @graph.topsort_iterator.to_a
-      sorted_names.map { |name| @artifacts[name] }.compact
+        @artifacts[component.first]
+      end.compact
     end
 
     # Find artifact by name and optionally type
@@ -220,7 +198,7 @@ module Agentic
     #
     # @return [String] Human-readable graph description
     def to_s
-      "<ArtifactGraph nodes=#{size} edges=#{@graph.edges.size}>"
+      "<ArtifactGraph nodes=#{size} edges=#{edge_count}>"
     end
 
     # Inspection string for debugging
@@ -230,7 +208,39 @@ module Agentic
       artifacts_summary = @artifacts.keys.first(5).join(", ")
       artifacts_summary += ", ..." if @artifacts.size > 5
 
-      "#<Agentic::ArtifactGraph:0x#{object_id.to_s(16)} nodes=#{size} edges=#{@graph.edges.size} artifacts=[#{artifacts_summary}]>"
+      "#<Agentic::ArtifactGraph:0x#{object_id.to_s(16)} nodes=#{size} edges=#{edge_count} artifacts=[#{artifacts_summary}]>"
+    end
+
+    private
+
+    def name_of(artifact)
+      artifact.is_a?(String) ? artifact : artifact.name
+    end
+
+    def edge_count
+      @references.values.sum(&:size)
+    end
+
+    # Tarjan's components in dependency order: this is exactly how TSort#tsort
+    # is built, minus the exception, so one pass serves both sorting and
+    # cycle detection. TSort treats a self-loop as a non-cycle; we don't.
+    def strongly_connected_components
+      TSort.strongly_connected_components(method(:each_name), method(:each_reference))
+    end
+
+    def cycle?(component)
+      component.size > 1 || @references[component.first].include?(component.first)
+    end
+
+    # TSort's node enumerator: every vertex, added or merely referenced
+    def each_name(&block)
+      @references.each_key(&block)
+    end
+
+    # TSort's child enumerator: an artifact's children are the artifacts it
+    # references, so the sort yields dependencies before dependents
+    def each_reference(name, &block)
+      @references.fetch(name, []).each(&block)
     end
   end
 

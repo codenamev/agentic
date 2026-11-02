@@ -111,6 +111,30 @@ RSpec.describe Agentic::TaskDefinition, "dependency graph fields" do
       expect(task.dependencies).to eq([])
     end
   end
+
+  describe "capabilities" do
+    it "defaults to none and stays out of the hash" do
+      definition = described_class.new(description: "Summarize", agent: agent)
+
+      expect(definition.capabilities).to eq([])
+      expect(definition.to_h).not_to have_key("capabilities")
+    end
+
+    it "keeps the planner's choice, deduplicated, and round-trips it" do
+      definition = described_class.new(description: "Summarize", agent: agent, capabilities: ["summarization", :summarization, "web_search"])
+
+      expect(definition.capabilities).to eq(%w[summarization web_search])
+      expect(definition.to_h["capabilities"]).to eq(%w[summarization web_search])
+      expect(described_class.from_hash(definition.to_h).capabilities).to eq(%w[summarization web_search])
+    end
+
+    it "hands the choice to the task it builds" do
+      definition = described_class.new(description: "Summarize", agent: agent, capabilities: ["summarization"])
+
+      expect(definition.to_task.capabilities).to eq(["summarization"])
+      expect(Agentic::Task.from_definition(definition).capabilities).to eq(["summarization"])
+    end
+  end
 end
 
 RSpec.describe Agentic::TaskDefinition, "on_failure policy" do

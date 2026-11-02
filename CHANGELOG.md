@@ -6,6 +6,7 @@
 - Both CLI execution paths (`agentic plan --execute` and `agentic execute --plan`) now hand the declared graph to the orchestrator: `depends_on` becomes ordering, `needs` becomes named output wiring, and a plan whose graph cannot be scheduled fails fast with the validator's message instead of running as an unordered swarm. Flat plans execute exactly as before
 - Per-task failure tolerance: `TaskDefinition` and `PlanOrchestrator#add_task` accept `on_failure:` (`skip_dependents`, the default, or `continue`). A task marked `continue` that fails for good no longer skips its dependents; they run and can branch on `Task#succeeded?` / `Task#failure_of` (and `task.needs.succeeded?` / `failure_of` for named inputs) while `output_of` stays `nil`. Retries still run first, intervention-required failures never continue, and the plan status stays `:partial_failure`. The planner schema asks the LLM for the flag and both CLI execution paths pass it through (#23)
 - README documents the seven `PlanOrchestrator` lifecycle hooks: names, when each fires, keyword arguments, the inline-on-fiber caveat, and a timing example
+- `TaskPlanner.new(..., registry:)` shows the planner the registry's capability catalog and asks it to name each task's `capabilities`; names outside the catalog are dropped with a warning. `TaskDefinition#capabilities` round-trips through the plan document and reaches `Task#capabilities`, and `AgentAssemblyEngine` honors the plan's choice before inferring anything. Without a registry the prompt and schema are unchanged (#49)
 - `TaskResult#stats` carries the `GenerationStats` of the LLM response that produced it (nil when unknown); `Agent#last_stats` exposes the most recent response's usage. `ExecutionJournal` writes `prompt_tokens`/`completion_tokens`/`total_tokens` on `task_succeeded` lines and replays them into `ReplayedState#tokens` / `#total_tokens`; `Learning.lifecycle_hooks` records `tokens_used` so `PatternRecognizer`'s token-heavy analysis runs from the built-in wiring (#46)
 
 ### Changed
@@ -14,6 +15,7 @@
 - Lockfile moved to ruby-openai 8.3.0 so CI tests what new consumers actually resolve.
 - Dropped the Ruby 3.2 caps (`async`, `console`, `dry-configurable`, `io-event`, `parallel`, `simplecov`) from the `Gemfile`, so the lockfile and the 3.3/3.4/latest CI legs track current releases (`async` 2.37 → 2.46). The 3.2 leg loads `gemfiles/ruby-3.2/Gemfile`, which has its own committed lockfile (resolved on 3.2 to the versions the caps used to force) and its own Dependabot entry. Closes #42.
 - `PersistentAgentStore#build_agent` resolves a stored capability version to the newest registered same-major, minor-or-higher version (logged at info) and raises `CapabilityNotFoundError` at load time on a major bump or a removed capability, instead of returning an agent with silently missing capabilities (#45). `agentic agent build` reports this as a clean error.
+- Default self-assembly infers capabilities from the registry instead of a hardcoded 11-name list, so every registered capability (built-in, composed, or user-registered) can be selected from a task description; keyword matches now require a word boundary, and `DefaultCompositionStrategy` no longer selects a capability twice when it is both required and a dependency
 
 ### Fixed
 - `Security::Sanitizer.sanitize_file_content` scopes its denylists by file extension: with a `name:` ending in `.md` or `.txt` the command- and code-injection lists are skipped (inline code spans and sentences that mention `system(`/`eval(` no longer fail, though executable Markdown directives like `` !`cmd` `` still do), and `.sql` artifacts may contain SQL. `Workspace` passes the artifact name. The declared type never relaxes anything, so a call without a name and any other extension (`.rb`, `.sh`, `.yml`, `.json`, extension-less files) keep every check exactly as before; the encoding and file-system checks apply to all
@@ -21,12 +23,17 @@
 - `EventDispatcher` slow-observer spec uses a monotonic clock and a looser bound so it no longer flakes on loaded hosts
 - `EventDispatcher` integration slow-observer spec gets the same monotonic-clock + looser-bound treatment
 - Every file under `lib/agentic/` now loads through Zeitwerk alone: the 57 `require_relative` lines between loader-managed files are gone, and `spec/zeitwerk_spec.rb` eager-loads the gem in a fresh process and fails on any `require_relative` that comes back
+- `require "agentic"` no longer depends on the dev bundle: `ArtifactGraph` runs on the standard library's `TSort` instead of rgl (which was never a declared dependency), the dead `require "base64"` in `AuthenticationSystem` is gone (a LoadError on Ruby >= 3.4 under Bundler), and `concurrent-ruby` and `tsort` are declared as the runtime dependencies they are. A spec now checks every `require` under lib/ against the gemspec
+- `ArtifactGraph#detect_cycles` returns the artifacts that actually form each cycle instead of listing every artifact in the graph
 
 ### Security
 - `Workspace#add_artifact` now raises `SecurityError` when an artifact's on-disk destination resolves outside the workspace through a symlink (a symlinked target file or a symlinked parent directory), or passes through a dangling symlink. Symlinks that resolve inside the workspace keep working. The lexical `..`/absolute-path checks are unchanged. Behavior change for persistent workspaces on real project directories: an out-of-tree symlink such as `lib -> ../shared/lib` was previously written through and is now refused.
 
 ### Deprecated
 - `HumanIntervention::AuthenticationSystem` (and the `Portal`'s built-in authenticator) is deprecated and will be removed in the next minor release. Its password hashing is a single SHA-256 round labelled `pbkdf2_sha256`, it compares secrets with `==`, and the gem's charter excludes accounts. Constructing an `Authenticator` now emits a `:deprecated`-category warning (shown when `Warning[:deprecated]` is enabled). Authenticate in the host application instead (#58)
+
+### Security
+- The CLI no longer steers the OpenAI key into `.agentic.yml`: `agentic config set` refuses keys containing token, key, secret, passw, or credential in any spelling, and values shaped like an OpenAI key, and the missing-token error and README point at `OPENAI_ACCESS_TOKEN` / `Agentic.configure`, which are the paths that actually work. Nothing ever read `api_token` from that file, and it is not gitignored.
 
 ## [0.3.0] - 2025-08-18
 

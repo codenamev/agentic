@@ -10,6 +10,11 @@ module Agentic
   # ids when definitions become tasks. All three fields are optional, so a
   # flat plan with none of them is unchanged in shape and behavior.
   #
+  # A definition may also name the +capabilities+ the planner chose for the
+  # task from the registry's catalog. Assembly honors that choice first and
+  # infers only to fill gaps, so the plan document, not keyword matching,
+  # decides what a task runs with.
+  #
   # +on_failure+ says what the graph does when this task fails for good:
   # +"skip_dependents"+ (default) skips everything downstream, +"continue"+
   # lets dependents run and read the failure via +Task#failure_of+.
@@ -32,6 +37,9 @@ module Agentic
     # @return [Hash{String=>String}] Named inputs mapped to the plan-local id whose output supplies them
     attr_reader :needs
 
+    # @return [Array<String>] Capability names the planner chose for this task
+    attr_reader :capabilities
+
     # @return [String] What dependents do when this task fails terminally
     attr_reader :on_failure
 
@@ -41,14 +49,16 @@ module Agentic
     # @param id [String, nil] Plan-local id other tasks may reference
     # @param depends_on [Array<String>] Plan-local ids this task runs after
     # @param needs [Hash{String=>String}] Named inputs mapped to upstream plan-local ids
+    # @param capabilities [Array<String>] Capability names chosen at plan time
     # @param on_failure [String, Symbol, nil] "skip_dependents" (default) or "continue"
     # @raise [ArgumentError] If on_failure is not a known policy
-    def initialize(description:, agent:, id: nil, depends_on: [], needs: {}, on_failure: nil)
+    def initialize(description:, agent:, id: nil, depends_on: [], needs: {}, capabilities: [], on_failure: nil)
       @description = description
       @agent = agent
       @id = id&.to_s
       @depends_on = Array(depends_on).map(&:to_s)
       @needs = (needs || {}).to_h { |name, dep| [name.to_s, dep.to_s] }
+      @capabilities = Array(capabilities).map(&:to_s).uniq
       @on_failure = (on_failure || "skip_dependents").to_s
       unless ON_FAILURE_POLICIES.include?(@on_failure)
         raise ArgumentError, "on_failure must be one of #{ON_FAILURE_POLICIES.join(", ")}, got #{@on_failure.inspect}"
@@ -72,7 +82,7 @@ module Agentic
     # @param payload [Object, nil] Arbitrary domain data for the executing agent
     # @return [Task] A new task ready for the orchestrator
     def to_task(input: {}, payload: nil)
-      Task.new(description: description, agent_spec: agent, input: input, payload: payload)
+      Task.new(description: description, agent_spec: agent, input: input, payload: payload, capabilities: capabilities)
     end
 
     # Returns a serializable representation of the task definition.
@@ -87,6 +97,7 @@ module Agentic
       hash["id"] = @id if @id
       hash["depends_on"] = @depends_on.dup unless @depends_on.empty?
       hash["needs"] = @needs.dup unless @needs.empty?
+      hash["capabilities"] = @capabilities.dup unless @capabilities.empty?
       hash["on_failure"] = @on_failure if continue_on_failure?
       hash
     end
@@ -103,6 +114,7 @@ module Agentic
         id: hash["id"],
         depends_on: hash["depends_on"] || [],
         needs: hash["needs"] || {},
+        capabilities: hash["capabilities"] || [],
         on_failure: hash["on_failure"]
       )
     end
