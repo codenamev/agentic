@@ -19,6 +19,7 @@ on:
       - 'Gemfile'
       - 'Gemfile.lock'
       - '*.gemspec'
+      - 'gemfiles/**'
       - '.github/workflows/audit.yml'
 
   push:
@@ -28,6 +29,7 @@ on:
       - 'Gemfile'
       - 'Gemfile.lock'
       - '*.gemspec'
+      - 'gemfiles/**'
       - '.github/workflows/audit.yml'
 
   # Catches advisories published against a lockfile nobody touched, which is
@@ -71,3 +73,6 @@ jobs:
       run: bundler-audit update || (sleep 15 && bundler-audit update)
     - name: Check Gemfile.lock against ruby-advisory-db
       run: bundler-audit check
+    - name: Check the Ruby 3.2 leg's lockfile against ruby-advisory-db
+      # Its own step so a red run names which lockfile is affected.
+      run: bundler-audit check --gemfile-lock gemfiles/ruby-3.2/Gemfile.lock
