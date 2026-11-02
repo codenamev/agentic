@@ -161,7 +161,10 @@ module Agentic
         content = @last_response.dig("choices", 0, "message", "content")
         LlmResponse.success(@last_response, content)
       end
-    rescue OpenAI::Error => e
+    rescue OpenAI::Error, Faraday::Error => e
+      # ruby-openai 8.x re-raises Faraday::Error for HTTP failures (429/401/5xx/timeouts)
+      # rather than wrapping them in OpenAI::Error, so both must be mapped here or
+      # they fall through to the generic LlmError and RetryHandler never retries.
       error = map_openai_error(e)
       Agentic.logger.error("OpenAI API error: #{error.message}")
       handle_error(error, fail_on_error)
@@ -288,6 +291,27 @@ module Agentic
           "OpenAI API connection error: #{error.message}",
           network_exception: error
         )
+      when defined?(Faraday::Error) && Faraday::Error
+        status = error.respond_to?(:response_status) ? error.response_status : nil
+        headers = error.respond_to?(:response_headers) ? (error.response_headers || {}) : {}
+        response = (error.respond_to?(:response) && error.response.is_a?(Hash)) ? error.response : nil
+
+        case status
+        when 429
+          Errors::LlmRateLimitError.new(
+            "OpenAI API rate limit exceeded: #{error.message}",
+            retry_after: headers["retry-after"]&.to_i,
+            response: response
+          )
+        when 401, 403
+          Errors::LlmAuthenticationError.new("OpenAI API authentication error: #{error.message}", response: response)
+        when 400, 404, 422
+          Errors::LlmInvalidRequestError.new("Invalid request to OpenAI API: #{error.message}", response: response)
+        when 500..599
+          Errors::LlmServerError.new("OpenAI API server error: #{error.message}", response: response)
+        else
+          Errors::LlmNetworkError.new("OpenAI API connection error: #{error.message}", network_exception: error)
+        end
       when OpenAI::Error
         # Parse error message to determine specific error type
         message = error.message.to_s.downcase
