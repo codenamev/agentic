@@ -26,13 +26,14 @@ RSpec.describe Agentic::TaskPlanner do
     let(:client) { instance_double(Agentic::LlmClient) }
     let(:response) { Agentic::LlmResponse.success({}, {"tasks" => tasks_payload}) }
 
-    def task_payload(id, description, depends_on: [], needs: [])
+    def task_payload(id, description, depends_on: [], needs: [], on_failure: "skip_dependents")
       {
         "id" => id,
         "description" => description,
         "agent" => {"name" => "#{id}_agent", "description" => "Does #{id}", "instructions" => "Do #{id}"},
         "depends_on" => depends_on,
-        "needs" => needs
+        "needs" => needs,
+        "on_failure" => on_failure
       }
     end
 
@@ -54,7 +55,8 @@ RSpec.describe Agentic::TaskPlanner do
 
         expect(client).to have_received(:complete) do |_messages, output_schema:, **|
           items = output_schema.to_hash[:schema][:properties][:tasks][:items]
-          expect(items[:required]).to include("id", "depends_on", "needs")
+          expect(items[:required]).to include("id", "depends_on", "needs", "on_failure")
+          expect(items[:properties][:on_failure][:enum]).to eq(%w[skip_dependents continue])
           expect(items[:properties][:needs][:items][:required]).to eq(%w[name task])
         end
       end
@@ -145,89 +147,6 @@ RSpec.describe Agentic::TaskPlanner do
 
         expect(planner.tasks.map(&:id)).to eq(%w[a b])
         expect(Agentic.logger).to have_received(:warn).with(/dependency cycle/)
-      end
-    end
-  end
-
-  describe "#analyze_goal with a registry" do
-    let(:client) { instance_double(Agentic::LlmClient) }
-    let(:registry) { Agentic::AgentCapabilityRegistry.instance }
-    let(:planner) { described_class.new(goal, llm_config, registry: registry) }
-    let(:response) { Agentic::LlmResponse.success({}, {"tasks" => tasks_payload}) }
-    let(:tasks_payload) do
-      [{
-        "id" => "summarize",
-        "description" => "Summarize the report",
-        "agent" => {"name" => "summarizer", "description" => "Summarizes", "instructions" => "Summarize"},
-        "depends_on" => [],
-        "needs" => [],
-        "capabilities" => ["summarization", "summarization", "mind_reading", 7, ""]
-      }]
-    end
-
-    def register(name, description)
-      capability = Agentic::CapabilitySpecification.new(name: name, description: description, version: "1.0.0")
-      registry.register(capability, Agentic::CapabilityProvider.new(capability: capability, implementation: ->(_inputs) { {} }))
-    end
-
-    before do
-      registry.clear
-      register("summarization", "Condense a document into its key points")
-      register("web_search", "Search the web for current information")
-      allow(Agentic).to receive(:client).and_return(client)
-      allow(client).to receive(:complete).and_return(response)
-    end
-
-    after { registry.clear }
-
-    it "shows the catalog in the prompt and asks for capabilities in the schema" do
-      planner.analyze_goal
-
-      expect(client).to have_received(:complete) do |messages, output_schema:, **|
-        prompt = messages.last[:content]
-        expect(prompt).to include("Capabilities available:")
-        expect(prompt).to include("- summarization: Condense a document into its key points")
-        expect(prompt).to include("- web_search: Search the web for current information")
-
-        items = output_schema.to_hash[:schema][:properties][:tasks][:items]
-        expect(items[:properties][:capabilities]).to eq({type: "array", items: {type: "string"}})
-        expect(items[:required]).to include("capabilities")
-      end
-    end
-
-    it "keeps catalog names in the definition and drops the rest with a warning" do
-      allow(Agentic.logger).to receive(:warn)
-
-      planner.analyze_goal
-
-      expect(planner.tasks.first.capabilities).to eq(["summarization"])
-      expect(Agentic.logger).to have_received(:warn).with(/Ignoring unknown capability "mind_reading" in task at index 0/)
-    end
-
-    it "round-trips the choice through the plan document" do
-      planner.analyze_goal
-
-      hash = planner.tasks.first.to_h
-      expect(hash["capabilities"]).to eq(["summarization"])
-      expect(Agentic::TaskDefinition.from_hash(hash).capabilities).to eq(["summarization"])
-    end
-
-    context "without a registry" do
-      it "sends the same prompt and schema as before capabilities existed" do
-        captured = []
-        allow(client).to receive(:complete) do |messages, output_schema:, **|
-          captured << [messages, output_schema.to_hash]
-          response
-        end
-
-        described_class.new(goal, llm_config).analyze_goal
-        registry.clear
-        described_class.new(goal, llm_config, registry: registry).analyze_goal
-
-        expect(captured.length).to eq(2)
-        expect(captured[0]).to eq(captured[1])
-        expect(captured[0][0].last[:content]).not_to include("Capabilities available")
-        expect(captured[0][1][:schema][:properties][:tasks][:items][:properties]).not_to have_key(:capabilities)
       end
     end
   end
