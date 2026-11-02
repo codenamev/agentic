@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "cache"
-
 module Agentic
   module Performance
     # Cache manager for coordinating multiple cache instances and strategies
