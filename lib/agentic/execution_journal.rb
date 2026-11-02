@@ -133,7 +133,20 @@ module Agentic
     # @param payload [Hash] Event data (must be JSON-serializable)
     # @return [void]
     def record(event, payload = {})
-      line = JSON.generate({event: event, at: Time.now.utc.iso8601(3)}.merge(payload))
+      at = Time.now.utc.iso8601(3)
+      line = begin
+        JSON.generate({event: event, at: at}.merge(payload))
+      rescue JSON::GeneratorError => e
+        # A journal write is a side effect of a task that already
+        # finished; it must never be the thing that fails it. Keep the
+        # fields replay keys on (task_id, description) so the task still
+        # counts, and record what could not be serialized.
+        JSON.generate(
+          {event: event, at: at}
+            .merge(payload.slice(:task_id, :description).select { |_, v| v.is_a?(String) })
+            .merge(payload_error: e.class.name, payload_inspect: payload.inspect[0, 500].scrub("?"))
+        )
+      end
 
       @mutex.synchronize do
         File.open(@path, "a") do |file|

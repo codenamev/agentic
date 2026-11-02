@@ -9,12 +9,17 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Ruby ${{ matrix.ruby }}
     strategy:
+      fail-fast: false
       matrix:
-        ruby:
-          - '3.2.4'
+        ruby: ['3.2', '3.3', '3.4', 'ruby']
+        include:
+          - ruby: '3.2'
+            gemfile: gemfiles/ruby-3.2/Gemfile
+    env:
+      BUNDLE_GEMFILE: ${{ matrix.gemfile || 'Gemfile' }}
 
     steps:
     - uses: actions/checkout@v7
