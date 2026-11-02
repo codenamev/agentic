@@ -279,6 +279,36 @@ RSpec.describe Agentic::LlmClient, :vcr do
         end
       end
 
+      context "when the HTTP layer raises Faraday::TooManyRequestsError (ruby-openai 8.x)" do
+        let(:faraday_429) do
+          Faraday::TooManyRequestsError.new(nil, {status: 429, headers: {"retry-after" => "1"}, body: "rate limited"})
+        end
+
+        it "maps to LlmRateLimitError rather than a generic LlmError" do
+          allow(openai_client).to receive(:chat).and_raise(faraday_429)
+
+          result = subject.complete(messages, use_retries: false)
+
+          expect(result.success?).to be false
+          expect(result.error).to be_a(Agentic::Errors::LlmRateLimitError)
+          expect(result.error.retry_after).to eq(1)
+        end
+
+        it "is retried by RetryHandler and succeeds on the next attempt" do
+          calls = 0
+          allow(openai_client).to receive(:chat) do
+            calls += 1
+            raise faraday_429 if calls == 1
+            success_response
+          end
+
+          result = subject.complete(messages, fail_on_error: true)
+
+          expect(result.success?).to be true
+          expect(calls).to eq(2)
+        end
+      end
+
       context "when rate limit error occurs" do
         before do
           allow(openai_client).to receive(:chat).and_raise(rate_limit_error)
@@ -488,6 +518,47 @@ RSpec.describe Agentic::LlmClient, :vcr do
     end
 
     describe "#map_openai_error" do
+      context "with Faraday errors re-raised by ruby-openai 8.x" do
+        def faraday_error(klass, status, headers: {}, body: nil)
+          klass.new(nil, {status: status, headers: headers, body: body})
+        end
+
+        it "maps 429 to LlmRateLimitError with retry-after" do
+          error = faraday_error(Faraday::TooManyRequestsError, 429, headers: {"retry-after" => "7"}, body: "slow down")
+          mapped = subject.send(:map_openai_error, error)
+          expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
+          expect(mapped.retry_after).to eq(7)
+        end
+
+        it "maps 401 and 403 to LlmAuthenticationError" do
+          expect(subject.send(:map_openai_error, faraday_error(Faraday::UnauthorizedError, 401)))
+            .to be_a(Agentic::Errors::LlmAuthenticationError)
+          expect(subject.send(:map_openai_error, faraday_error(Faraday::ForbiddenError, 403)))
+            .to be_a(Agentic::Errors::LlmAuthenticationError)
+        end
+
+        it "maps 400, 404 and 422 to LlmInvalidRequestError" do
+          [[Faraday::BadRequestError, 400], [Faraday::ResourceNotFound, 404], [Faraday::UnprocessableEntityError, 422]].each do |klass, status|
+            expect(subject.send(:map_openai_error, faraday_error(klass, status)))
+              .to be_a(Agentic::Errors::LlmInvalidRequestError)
+          end
+        end
+
+        it "maps 5xx to LlmServerError" do
+          mapped = subject.send(:map_openai_error, faraday_error(Faraday::ServerError, 503, body: "upstream down"))
+          expect(mapped).to be_a(Agentic::Errors::LlmServerError)
+        end
+
+        it "maps a Faraday::Error with no HTTP status to LlmNetworkError" do
+          mapped = subject.send(:map_openai_error, Faraday::Error.new("socket reset"))
+          expect(mapped).to be_a(Agentic::Errors::LlmNetworkError)
+        end
+
+        it "still maps Faraday::TimeoutError to LlmTimeoutError" do
+          mapped = subject.send(:map_openai_error, Faraday::TimeoutError.new("execution expired"))
+          expect(mapped).to be_a(Agentic::Errors::LlmTimeoutError)
+        end
+      end
       context "with different OpenAI error types" do
         let(:timeout_error) { OpenAI::Timeout.new("Request timeout") }
         let(:rate_limit_error) { OpenAI::RateLimitError.new("Rate limit") }

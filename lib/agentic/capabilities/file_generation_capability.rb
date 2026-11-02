@@ -97,7 +97,11 @@ module Agentic
       #   generation failures (parse errors, constraint violations) are
       #   returned as `{success: false, error: ...}` rather than raised
       # @raise [ArgumentError] If required inputs missing
-      # @raise [SecurityError] If an artifact fails workspace security validation
+      # @raise [SecurityError] If an artifact fails workspace security validation.
+      #   Deliberately NOT rescued here: a path-traversal or disallowed-extension
+      #   artifact means the generated output is untrustworthy, so the whole
+      #   generation fails closed (ArtifactGenerator#generate turns it into a
+      #   failed result; PlanOrchestrator records it as a TaskFailure).
       # @raise [StandardError] If agent execution fails (propagated unwrapped)
       def self.execute(agent:, inputs:)
         # Validate inputs

@@ -22,6 +22,30 @@ RSpec.describe Agentic::ExecutionJournal do
       expect(lines).to all(have_key("at"))
     end
 
+    it "still lands a line when the payload cannot be serialized" do
+      binary = (+"caf\xE9").force_encoding(Encoding::BINARY)
+      journal.record(:task_succeeded, task_id: "t-bin", description: "Fetch page", output: {body: binary})
+
+      lines = File.readlines(path)
+      expect(lines.size).to eq(1)
+      entry = JSON.parse(lines.first)
+      expect(entry).to include("event" => "task_succeeded", "task_id" => "t-bin", "description" => "Fetch page")
+      expect(entry).to have_key("at")
+      expect(entry["payload_error"]).to eq("JSON::GeneratorError")
+      expect(entry["payload_inspect"]).to include("t-bin")
+
+      state = described_class.replay(path: path, mode: :strict)
+      expect(state.completed_task_ids).to eq(["t-bin"])
+    end
+
+    it "survives a payload with a symbol and a string spelling of the same key" do
+      journal.record(:task_succeeded, task_id: "t-dup", output: {:k => 1, "k" => 2})
+
+      expect(File.readlines(path).size).to eq(1)
+      state = described_class.replay(path: path)
+      expect(state.completed_task_ids).to eq(["t-dup"])
+    end
+
     it "is safe under concurrent writers" do
       threads = 8.times.map do |i|
         Thread.new do

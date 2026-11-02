@@ -60,6 +60,7 @@ module Agentic
       @ready_to_execute = nil
       @output_schema_name = output_schema_name
       @dependency_outputs = {}
+      @dependency_failures = {}
       @artifact_mode = artifact_mode
     end
 
@@ -93,6 +94,29 @@ module Agentic
     # @return [Object, nil] The dependency's output
     def output_of(task_or_id)
       @dependency_outputs[task_or_id.respond_to?(:id) ? task_or_id.id : task_or_id]
+    end
+
+    # Records why a dependency failed when the graph chose to run this task
+    # anyway (on_failure: :continue). Called by the orchestrator
+    # @param dependency_id [String] The dependency task's id
+    # @param failure [TaskFailure] The dependency's failure
+    # @return [void]
+    def record_dependency_failure(dependency_id, failure)
+      @dependency_failures[dependency_id] = failure
+    end
+
+    # Whether a dependency produced an output rather than a tolerated failure
+    # @param task_or_id [Task, String] The dependency task (or its id)
+    # @return [Boolean]
+    def succeeded?(task_or_id)
+      @dependency_outputs.key?(task_or_id.respond_to?(:id) ? task_or_id.id : task_or_id)
+    end
+
+    # The failure a dependency recorded, when the graph continued past it
+    # @param task_or_id [Task, String] The dependency task (or its id)
+    # @return [TaskFailure, nil]
+    def failure_of(task_or_id)
+      @dependency_failures[task_or_id.respond_to?(:id) ? task_or_id.id : task_or_id]
     end
 
     # The output of this task's sole (or first-completed) dependency -
