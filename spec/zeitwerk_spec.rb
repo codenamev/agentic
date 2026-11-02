@@ -18,7 +18,7 @@ RSpec.describe "Zeitwerk loader" do
   it "eager-loads every constant under lib/agentic/ in a fresh process" do
     script = <<~RUBY
       require "agentic"
-      loader = Zeitwerk::Registry.loaders.find { |l| l.tag == "agentic" }
+      loader = ObjectSpace.each_object(Zeitwerk::Loader).find { |l| l.tag == "agentic" }
       abort "no Zeitwerk loader tagged agentic (did the gem name change?)" unless loader
       loader.eager_load(force: true)
       print Agentic::CLI.name
