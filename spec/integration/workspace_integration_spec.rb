@@ -210,6 +210,52 @@ RSpec.describe "Workspace Integration", :integration do
     end
   end
 
+  describe "ArtifactVerificationStrategy.for_artifact" do
+    it "keys the strategy off the file extension, not the declared type" do
+      artifact = Agentic::Artifact.new(
+        name: "user.rb",
+        type: :markdown,
+        content: "class User; end"
+      )
+
+      strategy = Agentic::Verification::ArtifactVerificationStrategy.for_artifact(artifact)
+      expect(strategy).to be_a(Agentic::Verification::RubyArtifactVerificationStrategy)
+    end
+
+    it "does not let a declared code type promote a non-code extension" do
+      artifact = Agentic::Artifact.new(
+        name: "README.md",
+        type: :ruby_class,
+        content: "# Readme"
+      )
+
+      strategy = Agentic::Verification::ArtifactVerificationStrategy.for_artifact(artifact)
+      expect(strategy).to be_a(Agentic::Verification::BasicArtifactVerificationStrategy)
+      expect(strategy).not_to be_a(Agentic::Verification::RubyArtifactVerificationStrategy)
+    end
+
+    it "is case-insensitive on the extension" do
+      artifact = Agentic::Artifact.new(name: "Script.PY", type: :python_module, content: "pass")
+
+      strategy = Agentic::Verification::ArtifactVerificationStrategy.for_artifact(artifact)
+      expect(strategy).to be_a(Agentic::Verification::PythonArtifactVerificationStrategy)
+    end
+
+    it "warns when the declared type disagrees with the extension" do
+      artifact = Agentic::Artifact.new(name: "user.rb", type: :markdown, content: "class User; end")
+
+      expect(Agentic.logger).to receive(:warn).with(/user\.rb declares type :markdown/)
+      Agentic::Verification::ArtifactVerificationStrategy.for_artifact(artifact)
+    end
+
+    it "stays quiet when a non-code type lands on a non-code extension" do
+      artifact = Agentic::Artifact.new(name: "notes.txt", type: :text, content: "hi")
+
+      expect(Agentic.logger).not_to receive(:warn)
+      Agentic::Verification::ArtifactVerificationStrategy.for_artifact(artifact)
+    end
+  end
+
   describe "FileGenerationCapability" do
     it "validates required inputs" do
       expect {
