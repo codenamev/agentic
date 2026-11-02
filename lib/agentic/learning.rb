@@ -96,7 +96,11 @@ module Agentic
 
       {
         after_task_success: lambda do |task_id:, task:, result:, duration:|
-          record.call(task_id: task_id, task: task, duration: duration, success: true)
+          stats = result.respond_to?(:stats) ? result.stats : nil
+          # String keys: PatternRecognizer reads metrics["tokens_used"], and
+          # that is also the shape a JSON-reloaded record has.
+          metrics = stats ? {"tokens_used" => stats.total_tokens, "prompt_tokens" => stats.prompt_tokens, "completion_tokens" => stats.completion_tokens} : {}
+          record.call(task_id: task_id, task: task, duration: duration, success: true, metrics: metrics)
           hooks[:after_task_success]&.call(task_id: task_id, task: task, result: result, duration: duration)
         end,
         after_task_failure: lambda do |task_id:, task:, failure:, duration:|

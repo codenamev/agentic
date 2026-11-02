@@ -19,6 +19,22 @@ RSpec.describe Agentic::TaskResult do
       end
     end
 
+    context "with stats" do
+      let(:stats) { Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 10, completion_tokens: 5, total_tokens: 15) }
+
+      it "carries the token usage and serializes it" do
+        result = described_class.new(task_id: task_id, success: true, output: output, stats: stats)
+        expect(result.stats).to be(stats)
+        expect(result.to_h[:stats]).to eq(id: "gen-1", prompt_tokens: 10, completion_tokens: 5, total_tokens: 15)
+      end
+
+      it "defaults to nil so unknown usage is never reported as zero" do
+        result = described_class.new(task_id: task_id, success: true, output: output)
+        expect(result.stats).to be_nil
+        expect(result.to_h[:stats]).to be_nil
+      end
+    end
+
     context "with failure result" do
       let(:result) { described_class.new(task_id: task_id, success: false, failure: failure) }
 

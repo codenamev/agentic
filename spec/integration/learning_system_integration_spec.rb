@@ -389,6 +389,43 @@ RSpec.describe "Learning System Integration" do
     end
   end
 
+  describe "Learning.lifecycle_hooks token usage" do
+    let(:stats) { Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 900, completion_tokens: 600, total_tokens: 1500) }
+    let(:agent) { double("Agent", execute: {"result" => "Success"}, last_stats: stats) }
+    let(:agent_provider) { double("AgentProvider", get_agent_for_task: agent) }
+
+    def run_task_with_id(task_id)
+      orchestrator = Agentic::PlanOrchestrator.new(lifecycle_hooks: Agentic::Learning.lifecycle_hooks(learning_system))
+      task = Agentic::Task.new(description: "Costed task", agent_spec: {"name" => "CostedAgent", "instructions" => "test"}, input: {})
+      allow(task).to receive(:id).and_return(task_id)
+      orchestrator.add_task(task)
+      orchestrator.execute_plan(agent_provider)
+    end
+
+    it "records the result's token usage as metrics without hand-fed values" do
+      run_task_with_id("costed-1")
+
+      record = history_store.get_history(agent_type: "CostedAgent").first
+      expect(record[:metrics]).to include("tokens_used" => 1500, "prompt_tokens" => 900, "completion_tokens" => 600)
+    end
+
+    it "lets PatternRecognizer's token-heavy analysis fire from the hooks alone" do
+      3.times { run_task_with_id("costed-1") }
+
+      history = history_store.get_history(agent_type: "CostedAgent")
+      opportunities = pattern_recognizer.send(:identify_optimization_opportunities, history)
+      expect(opportunities).to include(a_hash_including(type: :token_heavy, task_id: "costed-1", avg_tokens: 1500))
+    end
+
+    it "records no token metrics when the agent reports no stats" do
+      allow(agent).to receive(:last_stats).and_return(nil)
+      run_task_with_id("free-1")
+
+      record = history_store.get_history(agent_type: "CostedAgent").first
+      expect(record[:metrics]).not_to have_key("tokens_used")
+    end
+  end
+
   describe "Factory Method for Creating Learning System" do
     it "creates a complete learning system with the factory method" do
       # Create a learning system using the factory method

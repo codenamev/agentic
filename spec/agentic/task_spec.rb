@@ -47,6 +47,17 @@ RSpec.describe Agentic::Task do
         expect(result.output).to eq(output)
       end
 
+      it "leaves stats nil for an agent that reports none" do
+        expect(task.perform(agent).stats).to be_nil
+      end
+
+      it "attaches the agent's last_stats to the result" do
+        stats = Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 3, completion_tokens: 4, total_tokens: 7)
+        allow(agent).to receive(:last_stats).and_return(stats)
+
+        expect(task.perform(agent).stats).to be(stats)
+      end
+
       it "notifies observers of status changes" do
         observer = double("Observer")
         allow(observer).to receive(:update)
