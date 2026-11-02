@@ -31,6 +31,9 @@
 ### Deprecated
 - `HumanIntervention::AuthenticationSystem` (and the `Portal`'s built-in authenticator) is deprecated and will be removed in the next minor release. Its password hashing is a single SHA-256 round labelled `pbkdf2_sha256`, it compares secrets with `==`, and the gem's charter excludes accounts. Constructing an `Authenticator` now emits a `:deprecated`-category warning (shown when `Warning[:deprecated]` is enabled). Authenticate in the host application instead (#58)
 
+### Security
+- The CLI no longer steers the OpenAI key into `.agentic.yml`: `agentic config set` refuses keys containing token, key, secret, passw, or credential in any spelling, and values shaped like an OpenAI key, and the missing-token error and README point at `OPENAI_ACCESS_TOKEN` / `Agentic.configure`, which are the paths that actually work. Nothing ever read `api_token` from that file, and it is not gitignored.
+
 ## [0.3.0] - 2025-08-18
 
 ### Added
