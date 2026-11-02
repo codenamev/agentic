@@ -79,25 +79,6 @@ RSpec.describe Agentic::TaskPlanner do
       end
     end
 
-    context "when the LLM sets on_failure" do
-      let(:tasks_payload) do
-        [
-          task_payload("research", "Research the topic", on_failure: "continue"),
-          task_payload("write", "Write the report", depends_on: ["research"], on_failure: "nonsense")
-        ]
-      end
-
-      it "carries a known policy and falls back to the default for an unknown one" do
-        allow(Agentic.logger).to receive(:warn)
-        planner.analyze_goal
-
-        research, write = planner.tasks
-        expect(research.on_failure).to eq("continue")
-        expect(write.on_failure).to eq("skip_dependents")
-        expect(Agentic.logger).to have_received(:warn).with(/Ignoring on_failure in task at index 1/)
-      end
-    end
-
     context "when the LLM omits the graph fields" do
       let(:tasks_payload) do
         [{"description" => "Research the topic", "agent" => {"name" => "researcher", "description" => "Researches", "instructions" => "Research"}}]

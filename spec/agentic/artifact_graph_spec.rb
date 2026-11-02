@@ -221,6 +221,29 @@ RSpec.describe Agentic::ArtifactGraph do
       expect(cycles).not_to be_empty
       expect(cycles.first).to match_array(["a.rb", "b.rb", "c.rb"])
     end
+
+    it "reports only the artifacts that form the cycle" do
+      graph = described_class.new
+
+      a = Agentic::Artifact.new(name: "a.rb", type: :ruby_class, content: "", references: ["b.rb"])
+      b = Agentic::Artifact.new(name: "b.rb", type: :ruby_class, content: "", references: ["a.rb"])
+      bystander = Agentic::Artifact.new(name: "c.rb", type: :ruby_class, content: "", references: ["a.rb"])
+
+      graph.add_node(a)
+      graph.add_node(b)
+      graph.add_node(bystander)
+
+      expect(graph.detect_cycles).to contain_exactly(match_array(["a.rb", "b.rb"]))
+    end
+
+    it "treats a self-reference as a cycle" do
+      graph = described_class.new
+      graph.add_node(Agentic::Artifact.new(name: "a.rb", type: :ruby_class, content: "", references: ["a.rb"]))
+      graph.add_node(user_artifact)
+
+      expect(graph.detect_cycles).to eq([["a.rb"]])
+      expect { graph.topological_sort }.to raise_error(Agentic::CircularDependencyError, /a\.rb/)
+    end
   end
 
   describe "#has_cycles?" do

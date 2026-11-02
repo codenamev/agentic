@@ -71,6 +71,10 @@ module Agentic
       # Extract requirements from the task description and agent specification
       requirements = {}
 
+      # Capabilities the plan named come first, at full importance: the
+      # plan's choice is honored and inference below only fills gaps
+      seed_planned_capabilities(task, requirements)
+
       # Use the task description to infer capabilities
       infer_capabilities_from_description(task.description, requirements)
 
@@ -316,18 +320,24 @@ module Agentic
     # @param description [String] The task description
     # @param requirements [Hash] The requirements hash to update
     # @return [void]
+    # Seed requirements with the capabilities the planner chose for the task
+    # @param task [Task] The task, which may carry plan-time capability names
+    # @param requirements [Hash] The requirements hash to seed
+    # @return [void]
+    def seed_planned_capabilities(task, requirements)
+      return unless task.respond_to?(:capabilities)
+
+      Array(task.capabilities).each do |name|
+        requirements[name.to_s] = {importance: 1.0, version_constraint: nil}
+      end
+    end
+
     def infer_capabilities_from_description(description, requirements)
-      # Extract capability names from description using simple pattern matching
-      # This is a basic implementation that should be enhanced with NLP or LLM-based analysis
-
-      # Example: Look for known capability keywords
-      known_capabilities = [
-        "document_analysis", "structure_extraction", "text_generation",
-        "web_search", "data_analysis", "code_generation", "uml_generation",
-        "dependency_analysis", "testing", "performance_analysis", "code_metrics"
-      ]
-
-      known_capabilities.each do |capability|
+      # Match the description against what the registry holds, so a
+      # capability registered by a downstream gem is assemble-able from a
+      # plain description with no change here. Simple keyword matching;
+      # the LLM-assisted strategy does the same against registry.list
+      @registry.list.each_key do |capability|
         next unless description_mentions_capability?(description, capability)
 
         if requirements[capability]
@@ -362,17 +372,20 @@ module Agentic
 
     # Check whether a description mentions a capability, either literally
     # ("data_analysis"), space-separated ("data analysis"), or via word stems
-    # so that "Analyze the data" still matches "data_analysis"
+    # so that "Analyze the data" still matches "data_analysis". Every form
+    # must start a word: "db" does not match "feedback", "ai" does not
+    # match "maintain"
     # @param description [String] The text to search
     # @param capability [String] The capability name (underscore-separated)
     # @return [Boolean] True if the description mentions the capability
     def description_mentions_capability?(description, capability)
       text = description.downcase
-      return true if text.include?(capability.downcase) || text.include?(capability.tr("_", " "))
+      name = capability.downcase
+      return true if text.match?(/\b#{Regexp.escape(name)}\b/) || text.match?(/\b#{Regexp.escape(name.tr("_", " "))}\b/)
 
-      capability.split("_").all? do |word|
+      name.split("_").all? do |word|
         stem = word[0, 5]
-        stem.length >= 3 && text.include?(stem)
+        stem.length >= 3 && text.match?(/\b#{Regexp.escape(stem)}/)
       end
     end
 
@@ -517,11 +530,14 @@ module Agentic
         # Skip if not found
         next unless capability
 
-        # Add to selected capabilities
-        selected << {
-          name: capability.name,
-          version: capability.version
-        }
+        # Add to selected capabilities, unless an earlier requirement
+        # already pulled it in as a dependency
+        unless selected.any? { |sel| sel[:name] == capability.name }
+          selected << {
+            name: capability.name,
+            version: capability.version
+          }
+        end
 
         # Add dependencies
         capability.dependencies.each do |dep|
