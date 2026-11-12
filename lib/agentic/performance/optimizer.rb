@@ -266,6 +266,11 @@ module Agentic
         end
       end
 
+      # @return [Boolean] whether the auto-tuning thread is alive
+      def auto_tuning_running?
+        !!@optimization_thread&.alive?
+      end
+
       # Performance monitoring methods
       def memory_usage
         GC.stat[:heap_allocated_pages] * GC::INTERNAL_CONSTANTS[:HEAP_PAGE_SIZE]
