@@ -26,15 +26,45 @@ module Agentic
   #   Agentic::Performance.cache.set('key', 'value', category: :llm_responses)
   #   value = Agentic::Performance.cache.get('key')
   module Performance
+    INIT_LOCK = Mutex.new
+
+    # Settings applied per environment. "test" shares the development preset.
+    PRESETS = {
+      "development" => {
+        strategy: Optimizer::Strategy::CONSERVATIVE,
+        cache_enabled: true,
+        pooling_enabled: false,
+        monitoring_enabled: true,
+        auto_tuning_enabled: false
+      },
+      "production" => {
+        strategy: Optimizer::Strategy::BALANCED,
+        cache_enabled: true,
+        pooling_enabled: true,
+        monitoring_enabled: true,
+        auto_tuning_enabled: true
+      }
+    }.tap { |presets| presets["test"] = presets["development"] }.freeze
+
     class << self
-      attr_reader :optimizer, :cache_manager
+      # The optimizer, built with the environment preset on first access
+      # @return [Optimizer]
+      def optimizer
+        ensure_initialized!
+        @optimizer
+      end
+
+      # The cache manager, built with the environment preset on first access
+      # @return [CacheManager, nil] nil when caching is disabled
+      def cache_manager
+        ensure_initialized!
+        @cache_manager
+      end
 
       # Initialize the performance optimization system
       # @param config [Hash] Configuration options
       def initialize!(config = {})
-        @optimizer = Optimizer.new(config)
-        @cache_manager = @optimizer.cache_manager
-        @initialized = true
+        INIT_LOCK.synchronize { build!(config) }
       end
 
       # Check if performance system is initialized
@@ -43,9 +73,17 @@ module Agentic
         @initialized ||= false
       end
 
-      # Ensure performance system is initialized
+      # Ensure performance system is initialized. On first use this builds
+      # the optimizer with the preset for the current environment (see
+      # #environment_preset). Nothing in the gem calls it at boot, so the
+      # caches and their background threads only exist once something
+      # uses the performance system.
       def ensure_initialized!
-        initialize! unless initialized?
+        return if initialized?
+
+        INIT_LOCK.synchronize do
+          build!(environment_preset) unless initialized?
+        end
       end
 
       # Quick access to cache manager
@@ -107,11 +145,25 @@ module Agentic
         @optimizer.set_strategy(strategy)
       end
 
-      # Configure specific optimizations
+      # Configure specific optimizations. Settings merge onto the current
+      # configuration, which before first use is the environment preset.
       # @param optimizations [Hash] Optimization settings
+      # @return [Optimizer] the configured optimizer
       def configure(**optimizations)
-        ensure_initialized!
-        @optimizer.configure_optimizations(**optimizations)
+        INIT_LOCK.synchronize do
+          if initialized?
+            @optimizer.configure_optimizations(**optimizations)
+            @cache_manager = @optimizer.cache_manager
+          else
+            # Build with the merged settings instead of building with the
+            # preset and merging afterwards: the auto-tuning thread starts
+            # in Optimizer's constructor, so a later
+            # auto_tuning_enabled: false could never stop it.
+            build!(environment_preset.merge(optimizations))
+          end
+        end
+
+        @optimizer
       end
 
       # Clear all caches
@@ -296,24 +348,21 @@ module Agentic
 
       # Development environment configuration
       def configure_for_development
-        configure(
-          strategy: Optimizer::Strategy::CONSERVATIVE,
-          cache_enabled: true,
-          pooling_enabled: false,
-          monitoring_enabled: true,
-          auto_tuning_enabled: false
-        )
+        configure(**PRESETS.fetch("development"))
       end
 
       # Production environment configuration
       def configure_for_production
-        configure(
-          strategy: Optimizer::Strategy::BALANCED,
-          cache_enabled: true,
-          pooling_enabled: true,
-          monitoring_enabled: true,
-          auto_tuning_enabled: true
-        )
+        configure(**PRESETS.fetch("production"))
+      end
+
+      # The preset ensure_initialized! applies on first use, chosen by
+      # AGENTIC_ENV, RAILS_ENV or RACK_ENV (default "development").
+      # Unknown environments get the Optimizer defaults.
+      # @return [Hash]
+      def environment_preset
+        env = ENV["AGENTIC_ENV"] || ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development"
+        PRESETS.fetch(env, {})
       end
 
       # High-performance environment configuration
@@ -326,6 +375,17 @@ module Agentic
           auto_tuning_enabled: true
         )
       end
+
+      private
+
+      # Callers hold INIT_LOCK
+      def build!(config)
+        @optimizer = Optimizer.new(config)
+        @cache_manager = @optimizer.cache_manager
+        @initialized = true
+      end
+
+      public
 
       # Reset performance system (mainly for testing)
       def reset!
