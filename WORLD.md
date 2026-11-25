@@ -23,10 +23,13 @@ the biggest agent framework in Ruby. The one you can argue with.
 
 ## MISSION (what we're here to do)
 
-A Ruby gem for building and running AI agents in a plan-and-execute fashion,
-as a library and a CLI. It exists so Ruby developers can build purpose-driven
-agents with plans they can inspect, edit, and save, without leaving Ruby or
-adopting a framework the size of a small country.
+A Ruby gem, library and CLI, for agents that assemble themselves from small,
+reusable, composable parts. You seed it with a purpose and constraints; it
+picks capabilities (and other agents) from a versioned store, composes them,
+runs, observes what happened, and keeps what worked for next time. It exists
+so Ruby developers get self-assembling agents whose plans, parts, and history
+stay readable and editable, inside boundaries a human sets, without leaving
+Ruby or adopting a framework the size of a small country.
 
 ## CONSTITUTION (what rules we must obey)
 
