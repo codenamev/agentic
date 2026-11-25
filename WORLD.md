@@ -9,17 +9,21 @@ proposal conflicts with this file, the proposal is wrong.
 Status: PROPOSED. Drafted 2026-08-13 as a seven-section charter. Restructured
 2026-09-19 under the six headings every repo in the fleet now shares, so a loop
 session or a portfolio pass finds the same answer in the same place in every
-repo. Awaiting maintainer approval.
+repo. Recalibrated 2026-11-25 around Autogenetica's loop (Seed → Assemble →
+Operate → Prove → Preserve, under human governance) after the maintainer
+pointed out the gem is far past plan-and-execute. Awaiting maintainer approval.
 
 ## VISION (where we hope this goes)
 
-<!-- VAL: edit. Drafted from the old Direction section; the charter never said where this goes, only which way it leans. -->
+<!-- VAL: edit. Redrafted 2026-11-25 around the Autogenetica loop; still yours to write. -->
 
-A Ruby developer describes a task and gets back an agent they can read. The
-plan sits in a file they can open, edit, and save. The capabilities were
-assembled from a versioned store the agent chose from itself. The execution
-history explains what ran, what failed, and what it did about the failure. Not
-the biggest agent framework in Ruby. The one you can argue with.
+A Ruby developer seeds an intent and a few boundaries, and the system grows
+the rest: it assembles agents out of small parts, runs them, checks what
+actually worked, and keeps it. Next time it starts from what survived, not from
+zero. Every part it reached for is versioned, every run leaves a journal that
+says what happened and why, and a human can stop, read, or redirect it at any
+step. Autonomy gets earned run by run, never assumed. Not the biggest agent
+framework in Ruby. The one that carries its own work forward and can prove it.
 
 ## MISSION (what we're here to do)
 
@@ -60,20 +64,26 @@ Anti-goals, which are constraints wearing a different hat:
 
 ## ROADMAP (what next)
 
-The old Direction section gave bearings. This is the same content as an order.
+Ordered by the loop. Each item makes one stage real; a stage nobody can
+observe doesn't count as built.
 
-1. The plan is the product. Inspectable, editable, persistable plans are what
-   separate this from "call the API in a loop." Depth here wins: better plan
-   quality, better failure recovery, better execution history. Work that
-   deepens the plan beats work that widens the gem.
-2. The self-assembly and capability system (v0.2.0) is the bet worth maturing:
-   agents that construct themselves from task requirements, with versioned
-   capabilities and a persistent store.
-3. Provider strategy is an open question. The gem is OpenAI-only today.
-   Whether to abstract providers (and which second provider earns the
+1. **Assemble.** Composable parts are the product. Capabilities and agents are
+   the same kind of thing at different sizes: versioned, specified, stored,
+   and callable by other agents. Depth here wins: better selection from the
+   store, cleaner composition, agents that call agents. The plan is what
+   assembly produces, an inspectable artifact rather than the point.
+2. **Prove and preserve.** Each run is a hypothesis. The execution journal,
+   resume from a torn run, and the learning system turn "it ran" into "here's
+   the evidence it worked," and decide which parts and compositions earn a
+   place in the store for next time. Work that closes this feedback loop beats
+   work that widens the gem.
+3. **Governance.** Human intervention is first-class state, not an exception:
+   the run pauses, a person answers, it resumes. Boundaries set at seed time
+   hold through every later stage.
+4. **Provider strategy** is still an open question. The gem is OpenAI-only
+   today. Whether to abstract providers (and which second provider earns the
    abstraction) needs a researched proposal with a real cost, not a drive-by
-   PR. This is third because the first two are what a second provider would
-   have to plug into.
+   PR. It's last because a second provider has to plug into everything above.
 
 Standing, not sequenced: good gem citizenship. Semantic versioning, honest
 CHANGELOG, current Ruby. Track the latest stable Ruby; do not carry EOL
@@ -97,11 +107,16 @@ operator's side, not here.
 ## CHARTER (why this exists, what territory, what freedoms)
 
 **Why:** because the alternative for a Ruby developer is a framework the size
-of a small country, or a loop around an API call with no plan anyone can read.
+of a small country, or a loop around an API call that forgets everything the
+moment it returns. Agents that build themselves are only worth having if what
+they learn sticks and a human can check it.
 
-**Territory:** <!-- VAL: edit. The old charter drew this border only by negation (the anti-goals); this states it positively. -->
-agentic owns the plan format, the executor, the capability and self-assembly
-system, and the CLI that drives them. It does not own hosting, accounts,
+**Territory:** <!-- VAL: edit. Redrafted 2026-11-25 to follow the loop stages. -->
+agentic owns the parts (capabilities and agents, their specifications, and the
+versioned store), the assembly engine that composes them, the orchestrator and
+plan format that run them, the execution journal and learning system that
+prove and preserve results, the intervention points where a human steps in,
+and the CLI that drives all of it. It does not own hosting, accounts,
 integrations beyond what the core needs to prove itself, or a second provider
 until one is chosen.
 
