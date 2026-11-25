@@ -140,6 +140,17 @@ module Agentic
       @needs ||= NamedOutputs.new
     end
 
+    # Marks the task completed with an output recorded by an earlier run,
+    # without executing it. Used when resuming a plan from a journal.
+    # @param output [Object] The output the earlier run produced
+    # @return [void]
+    def restore_completed(output)
+      old_status = @status
+      @output = output
+      @status = :completed
+      notify_observers(:status_change, old_status, @status)
+    end
+
     # Executes the task using the given agent
     # @param agent [Agent] The agent that will execute this task
     # @return [TaskResult] The result of the task execution

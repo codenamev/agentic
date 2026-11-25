@@ -235,8 +235,9 @@ module Agentic
     # @raise [ArgumentError] If any task has no way to obtain an agent, if a
     #   pending task depends on an id that names no task in the plan, or if
     #   pending tasks form a dependency cycle
-    def execute_plan(agent_provider = nil, &agent_factory)
+    def execute_plan(agent_provider = nil, resume_from: nil, &agent_factory)
       agent_provider ||= agent_factory
+      restore_completed_tasks(resume_from) if resume_from
       ensure_agents_resolvable!(agent_provider)
       ensure_dependencies_satisfiable!
 
@@ -430,9 +431,37 @@ module Agentic
     # Finds tasks that are eligible for execution (have no dependencies)
     # @return [Array<String>] IDs of eligible tasks
     def find_eligible_tasks
-      @dependencies.select do |task_id, deps|
-        deps.empty? && @execution_state[:pending].include?(task_id)
+      @dependencies.select do |task_id, _deps|
+        @execution_state[:pending].include?(task_id) && all_dependencies_met?(task_id)
       end.keys
+    end
+
+    # Marks tasks a prior run already completed as done, seeding their
+    # recorded outputs so dependents and needs: wiring see real values.
+    # Matches by task id first, then by description (ids are per-run, so
+    # a fresh process resuming an unchanged plan matches on description).
+    # @param state [ExecutionJournal::ReplayedState] Replayed journal state
+    # @return [void]
+    def restore_completed_tasks(state)
+      ids_by_description = state.completed_task_ids.each_with_object({}) do |id, map|
+        description = state.descriptions[id]
+        map[description] = id if description
+      end
+
+      @execution_state[:pending].to_a.each do |task_id|
+        task = @tasks[task_id]
+        recorded_id = if state.completed_task_ids.include?(task_id)
+          task_id
+        else
+          ids_by_description[task.description]
+        end
+        next unless recorded_id
+
+        output = state.outputs[recorded_id]
+        task.restore_completed(output)
+        transition_task_state(task_id, from: :pending, to: :completed)
+        @results[task_id] = TaskExecutionResult.success(output)
+      end
     end
 
     # Determines the overall status of the plan
