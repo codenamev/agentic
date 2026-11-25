@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "stringio"
+require "tmpdir"
 
 RSpec.describe Agentic::CLI do
   let(:output) { StringIO.new }
@@ -345,6 +346,75 @@ RSpec.describe Agentic::CLI do
         on_failure: :skip_dependents
       )
       expect(output.string).to include("Total tasks: 2").and include("Dependencies: 1")
+    end
+  end
+
+  describe "#execute with --journal and --resume" do
+    let(:dir) { Dir.mktmpdir }
+    let(:journal_path) { File.join(dir, "run.jsonl") }
+    let(:plan) do
+      {"tasks" => [
+        {"id" => "t1", "description" => "Research", "agent" => {"name" => "Researcher"}},
+        {"id" => "t2", "description" => "Write", "agent" => {"name" => "Writer"},
+         "depends_on" => ["t1"], "needs" => {"findings" => "t1"}}
+      ]}
+    end
+    let(:executed) { [] }
+    let(:provider) do
+      ran = executed
+      double("AgentProvider").tap do |p|
+        allow(p).to receive(:get_agent_for_task) do |task|
+          double("Agent").tap do |agent|
+            allow(agent).to receive(:execute) do |_prompt|
+              ran << task.description
+              {"text" => "#{task.description} done"}
+            end
+          end
+        end
+      end
+    end
+
+    before do
+      allow_any_instance_of(described_class).to receive(:check_api_token!).and_return(true)
+      allow_any_instance_of(described_class).to receive(:load_plan_data).and_return(plan)
+      allow_any_instance_of(described_class).to receive(:save_result_to_file)
+      allow_any_instance_of(described_class).to receive(:setup_cancellation_handler)
+      allow_any_instance_of(described_class).to receive(:setup_observability_adapters)
+      allow(Agentic::CLI::ExecutionObserver).to receive(:new).and_return(double("ExecutionObserver", lifecycle_hooks: {}))
+      allow(Agentic::DefaultAgentProvider).to receive(:new).and_return(provider)
+    end
+
+    after { FileUtils.remove_entry(dir) }
+
+    it "journals every task so a later run can resume from it" do
+      described_class.start(["execute", "--plan=p.json", "--journal=#{journal_path}"])
+
+      state = Agentic::ExecutionJournal.replay(path: journal_path)
+      expect(state.descriptions.values).to contain_exactly("Research", "Write")
+      expect(state.completed_task_ids.size).to eq(2)
+      expect(executed).to eq(%w[Research Write])
+    end
+
+    it "skips tasks the journal already completed and runs only the tail" do
+      journal = Agentic::ExecutionJournal.new(path: journal_path)
+      journal.record(:task_started, task_id: "old-1", description: "Research")
+      journal.record(:task_succeeded, task_id: "old-1", description: "Research", duration: 0.1,
+        output: {"text" => "Research done"})
+
+      described_class.start(["execute", "--plan=p.json", "--journal=#{journal_path}", "--resume"])
+
+      expect(executed).to eq(%w[Write])
+      expect(output.string).to include("Resuming: 1 task(s) already completed")
+    end
+
+    it "refuses --resume without --journal" do
+      cli = described_class.new([], {resume: true})
+      expect { cli.send(:load_resume_state) }.to raise_error(Thor::Error, /--resume needs --journal/)
+    end
+
+    it "refuses --resume when the journal does not exist" do
+      cli = described_class.new([], {resume: true, journal: journal_path})
+      expect { cli.send(:load_resume_state) }.to raise_error(Thor::Error, /No journal at/)
     end
   end
 end

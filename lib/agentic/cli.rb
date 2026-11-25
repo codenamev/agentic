@@ -116,9 +116,18 @@ module Agentic
 
       Use a workspace for file generation tasks:
         $ agentic execute --plan plan.json --workspace /tmp/project
+
+      Journal the run, and resume it after a crash or Ctrl+C without
+      re-running (or re-paying for) the tasks that already finished:
+        $ agentic execute --plan plan.json --journal run.jsonl
+        $ agentic execute --plan plan.json --journal run.jsonl --resume
     LONGDESC
     option :plan, type: :string, aliases: "-p",
       desc: "Path to a plan file"
+    option :journal, type: :string, aliases: "-j",
+      desc: "Append a durable execution journal (JSONL) to this path"
+    option :resume, type: :boolean, default: false,
+      desc: "Skip tasks the --journal already records as completed, reusing their outputs"
     option :from_stdin, type: :boolean,
       desc: "Read plan from stdin"
     option :async, type: :boolean, default: true,
@@ -134,6 +143,9 @@ module Agentic
     def execute
       check_api_token!
 
+      # Validate resume flags before spending anything on the plan
+      resume_state = load_resume_state
+
       # Load the plan
       plan_data = load_plan_data
 
@@ -145,7 +157,7 @@ module Agentic
       tasks = initialize_tasks(plan_data)
 
       # Execute the tasks
-      execute_tasks(tasks)
+      execute_tasks(tasks, resume_state: resume_state)
     end
 
     # Agent commands
@@ -698,7 +710,36 @@ module Agentic
     # Shared execution logic for both execute command and immediate execution
     # @param graph [Array<Array(Task, Array<Task>, Hash{String => Task}, Symbol)>]
     #   The tasks to execute with their resolved edges (see #build_task_graph)
-    def execute_tasks(graph)
+    # Replays the --journal when --resume is given
+    # @return [ExecutionJournal::ReplayedState, nil] Prior state, or nil when not resuming
+    def load_resume_state
+      return nil unless options[:resume]
+
+      path = options[:journal]
+      raise Thor::Error, "--resume needs --journal PATH (the journal of the run to resume)" unless path
+      raise Thor::Error, "No journal at #{path} to resume from" unless File.exist?(path)
+
+      state = ExecutionJournal.replay(path: path)
+      if state.damaged? && !options[:quiet]
+        say UI.colorize("⚠ Journal #{path} has #{state.damage.size} damaged line(s); resuming from what survived", :yellow)
+      end
+      unless options[:quiet]
+        say UI.colorize("Resuming: #{state.completed_task_ids.size} task(s) already completed in #{path}", :blue)
+      end
+      state
+    end
+
+    # Combines the observer's hooks with journal writing when --journal is set
+    # @param observer_hooks [Hash] The execution observer's lifecycle hooks
+    # @return [Hash] Hooks for the orchestrator
+    def orchestrator_hooks(observer_hooks)
+      return observer_hooks unless options[:journal]
+
+      journal = ExecutionJournal.new(path: options[:journal])
+      observer_hooks.merge(journal.lifecycle_hooks(observer_hooks))
+    end
+
+    def execute_tasks(graph, resume_state: nil)
       say UI.colorize("Executing plan...", :green) unless options[:quiet]
 
       # Setup observability adapters for CLI execution
@@ -713,7 +754,7 @@ module Agentic
       # Setup the PlanOrchestrator with the observer's lifecycle hooks
       orchestrator = PlanOrchestrator.new(
         concurrency_limit: options[:max_concurrency] || 10,
-        lifecycle_hooks: observer.lifecycle_hooks
+        lifecycle_hooks: orchestrator_hooks(observer.lifecycle_hooks)
       )
 
       # Add tasks to the orchestrator with their declared edges, so
@@ -739,7 +780,7 @@ module Agentic
 
       # Execute the plan
       begin
-        result = orchestrator.execute_plan(DefaultAgentProvider.new(llm_config))
+        result = orchestrator.execute_plan(DefaultAgentProvider.new(llm_config), resume_from: resume_state)
 
         # Always save result to file
         save_result_to_file(result, options, observer)
