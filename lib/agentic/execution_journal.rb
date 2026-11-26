@@ -25,7 +25,7 @@ module Agentic
     # Replayed journal state: everything a resuming process needs to know
     ReplayedState = Struct.new(
       :plan_id, :status, :completed_task_ids, :failed_task_ids, :outputs, :failures, :events, :descriptions, :durations, :duration_samples, :damage,
-      :tokens, :awaiting_human, :human_answers,
+      :tokens, :awaiting_human, :human_answers, :path,
       keyword_init: true
     ) do
       # @param task_id [String] A task id from this journal
@@ -203,6 +203,24 @@ module Agentic
       end
     end
 
+    # Claims a journal for a single resumer: a non-blocking exclusive
+    # flock on the sidecar <path>.lock. Hold the returned File for the
+    # life of the run and close it when done. A crashed holder's lock is
+    # released by the OS when its descriptor closes - no lease, no clock.
+    #
+    # @param path [String] The journal being resumed
+    # @return [File] The open lock file; closing it releases the claim
+    # @raise [Errors::JournalBusyError] If another process holds the claim
+    def self.claim(path)
+      path = File.expand_path(path)
+      FileUtils.mkdir_p(File.dirname(path))
+      lock = File.open("#{path}.lock", File::RDWR | File::CREAT, 0o644)
+      return lock if lock.flock(File::LOCK_EX | File::LOCK_NB)
+
+      lock.close
+      raise Errors::JournalBusyError.new(path)
+    end
+
     # Replays a journal file into resumable state.
     #
     # The default mode is :tolerant, because the file being replayed
@@ -232,7 +250,8 @@ module Agentic
         damage: [],
         tokens: {},
         awaiting_human: {},
-        human_answers: {}
+        human_answers: {},
+        path: File.expand_path(path)
       )
 
       return state unless File.exist?(path)

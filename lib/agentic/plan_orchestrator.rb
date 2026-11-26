@@ -238,13 +238,25 @@ module Agentic
     #   pending task depends on an id that names no task in the plan, or if
     #   pending tasks form a dependency cycle, or if answers: names a task
     #   the journal has no open question for (unknown, or already answered)
+    # @raise [Errors::JournalBusyError] If another process is already
+    #   resuming the same journal. A resume holds an exclusive flock on
+    #   <journal>.lock for the whole run (C16), so two resumers cannot both
+    #   re-run the pending tasks and double-append to one file.
     # @param answers [Hash{String => Object}, nil] Answers for paused tasks,
     #   keyed by the task id recorded in resume_from's task_awaiting_human
     #   event. Each is journaled (task_human_answered) and merged into the
     #   task's input as :human_answer before it re-runs. Requires resume_from:.
     def execute_plan(agent_provider = nil, resume_from: nil, answers: nil, &agent_factory)
-      agent_provider ||= agent_factory
       raise ArgumentError, "answers: requires resume_from:" if answers && !resume_from
+      claim = ExecutionJournal.claim(resume_from.path) if resume_from&.path
+      begin
+        run_plan(agent_provider || agent_factory, resume_from, answers)
+      ensure
+        claim&.close
+      end
+    end
+
+    private def run_plan(agent_provider, resume_from, answers)
       restore_completed_tasks(resume_from) if resume_from
       deliver_human_answers(resume_from, answers) if answers
       ensure_agents_resolvable!(agent_provider)
