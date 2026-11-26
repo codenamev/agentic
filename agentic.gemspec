@@ -35,6 +35,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "dry-schema", "~> 1.13"
   spec.add_dependency "ruby-openai", ">= 7.1", "< 9"
+  spec.add_dependency "ruby_llm", "~> 2.2" # provider-agnostic LLM layer; ruby-openai goes once the adapter lands
   spec.add_dependency "zeitwerk", "~> 2.6"
   spec.add_dependency "async", "~> 2.0"
   spec.add_dependency "thor", "~> 1.2"
