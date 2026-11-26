@@ -22,16 +22,7 @@ module Agentic
       configuration.validate!
       @limiter = limiter
 
-      # Local endpoints (Ollama, etc.) ignore the token but the client
-      # requires one, so send an explicit placeholder rather than nil
-      client_options = {access_token: configuration.access_token || "local"}
-
-      # Add custom base URL if configured (for Ollama, etc.)
-      if configuration.api_base_url
-        client_options[:uri_base] = configuration.api_base_url
-      end
-
-      @client = OpenAI::Client.new(**client_options)
+      @client = build_client(configuration)
       @config = config
       @last_response = nil
 
@@ -223,6 +214,25 @@ module Agentic
     end
 
     private
+
+    # Builds the transport behind `chat(parameters:)` for the configured
+    # llm_backend. Both speak OpenAI-shaped parameters and responses.
+    # @param configuration [LegacyConfiguration]
+    # @return [OpenAI::Client, RubyLlmAdapter]
+    def build_client(configuration)
+      return RubyLlmAdapter.from_configuration(configuration) if configuration.llm_backend == :ruby_llm
+
+      # Local endpoints (Ollama, etc.) ignore the token but the client
+      # requires one, so send an explicit placeholder rather than nil
+      client_options = {access_token: configuration.access_token || "local"}
+
+      # Add custom base URL if configured (for Ollama, etc.)
+      if configuration.api_base_url
+        client_options[:uri_base] = configuration.api_base_url
+      end
+
+      OpenAI::Client.new(**client_options)
+    end
 
     # Extracts content from messages for logging purposes with security sanitization
     # @param messages [Array<Hash>] The messages

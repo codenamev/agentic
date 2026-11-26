@@ -54,6 +54,26 @@ RSpec.describe Agentic::LegacyConfiguration do
     end
   end
 
+  describe "#llm_backend" do
+    it "defaults to :openai" do
+      config = nil
+      without_env("AGENTIC_LLM_BACKEND") { config = described_class.new }
+      expect(config.llm_backend).to eq(:openai)
+    end
+
+    it "accepts :ruby_llm as a string or symbol" do
+      config = fresh_configuration
+      config.llm_backend = " Ruby_LLM "
+      expect(config.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "rejects unknown backends" do
+      config = fresh_configuration
+      expect { config.llm_backend = "anthropic" }
+        .to raise_error(Agentic::Errors::ConfigurationError, /Unknown llm_backend/)
+    end
+  end
+
   describe "LlmClient fail-fast" do
     it "raises at construction when unconfigured, not at request time" do
       Agentic.instance_variable_set(:@configuration, fresh_configuration)

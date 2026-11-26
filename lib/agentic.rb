@@ -36,10 +36,29 @@ module Agentic
   class LegacyConfiguration
     attr_accessor :access_token, :agent_store_path, :api_base_url
 
+    # @return [Symbol] LLM transport: :openai (ruby-openai, the default) or
+    #   :ruby_llm (RubyLlmAdapter). Transitional switch while the RubyLLM
+    #   swap lands; goes away once :ruby_llm is the only path.
+    attr_reader :llm_backend
+
+    LLM_BACKENDS = %i[openai ruby_llm].freeze
+
     def initialize
       @access_token = ENV["OPENAI_ACCESS_TOKEN"] || ENV["AGENTIC_API_TOKEN"]
       @agent_store_path = ENV["AGENTIC_AGENT_STORE_PATH"] || File.join(Dir.home, ".agentic", "agents")
       @api_base_url = ENV["AGENTIC_API_BASE_URL"] || ENV["OPENAI_BASE_URL"]
+      self.llm_backend = ENV["AGENTIC_LLM_BACKEND"] || :openai
+    end
+
+    # @param value [Symbol, String] one of LLM_BACKENDS
+    # @raise [Errors::ConfigurationError] for an unknown backend
+    def llm_backend=(value)
+      backend = value.to_s.strip.downcase.to_sym
+      unless LLM_BACKENDS.include?(backend)
+        raise Errors::ConfigurationError,
+          "Unknown llm_backend #{value.inspect}; expected one of #{LLM_BACKENDS.join(", ")}"
+      end
+      @llm_backend = backend
     end
 
     # Verifies that the configuration can reach an LLM: either an access

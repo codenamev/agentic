@@ -41,6 +41,48 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
+    context "with llm_backend :ruby_llm" do
+      before do
+        require "ruby_llm"
+        allow(Agentic.configuration).to receive(:llm_backend).and_return(:ruby_llm)
+      end
+
+      it "uses a RubyLlmAdapter on a private context instead of ruby-openai" do
+        expect(OpenAI::Client).not_to receive(:new)
+
+        client = described_class.new(config)
+
+        expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+        context = client.client.instance_variable_get(:@context)
+        expect(context.config.openai_api_key).to eq(access_token)
+        expect(RubyLLM.config.openai_api_key).not_to eq(access_token)
+        expect(client.client.instance_variable_get(:@assume_model_exists)).to be(false)
+      end
+
+      it "points the context at a custom base URL and skips the model registry" do
+        allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434/v1")
+
+        adapter = described_class.new(config).client
+
+        expect(adapter.instance_variable_get(:@context).config.openai_api_base).to eq("http://localhost:11434/v1")
+        expect(adapter.instance_variable_get(:@assume_model_exists)).to be(true)
+      end
+
+      it "sends complete() through RubyLLM and keeps the LlmResponse contract" do
+        chat = double("RubyLLM::Chat")
+        allow_any_instance_of(RubyLLM::Context).to receive(:chat).and_return(chat)
+        allow(chat).to receive(:with_temperature).and_return(chat)
+        allow(chat).to receive(:add_message)
+        message = double("RubyLLM::Message", content: "hi back", tokens: nil, model: "gpt-4", finish_reason: :stop)
+        allow(chat).to receive(:complete).and_return(message)
+
+        response = described_class.new(config).complete(messages)
+
+        expect(response).to be_successful
+        expect(response.content).to eq("hi back")
+      end
+    end
+
     context "with retry configuration" do
       let(:retry_config) { {max_retries: 5, backoff_factor: 2.0} }
 

@@ -17,6 +17,25 @@ module Agentic
     # rides through `with_provider_options`.
     HANDLED = %i[model messages temperature max_tokens response_format stream].freeze
 
+    # Builds an adapter from agentic's runtime configuration: the access
+    # token and base URL go into a private RubyLLM context (never the global
+    # RubyLLM config), and a custom base URL means a local or proxy endpoint
+    # whose model names RubyLLM's registry won't know.
+    # @param configuration [LegacyConfiguration]
+    # @return [RubyLlmAdapter]
+    def self.from_configuration(configuration)
+      require "ruby_llm"
+
+      base_url = configuration.api_base_url
+      context = RubyLLM.context do |c|
+        # Local endpoints ignore the key but RubyLLM requires one
+        c.openai_api_key = configuration.access_token || "local"
+        c.openai_api_base = base_url if base_url
+      end
+
+      new(context: context, provider: :openai, assume_model_exists: !base_url.nil?)
+    end
+
     # @param context [RubyLLM::Context, #chat] where chats are built; a
     #   context keeps per-client keys and base URLs off the global config
     # @param provider [Symbol, nil] force a provider (e.g. :ollama, :openai)
