@@ -7,9 +7,8 @@ reads this document before proposing anything and stays inside its fences. If a
 proposal conflicts with this file, the proposal is wrong.
 
 Status: PROPOSED. Drafted 2026-08-13 as a seven-section charter. Restructured
-2026-09-19 under the six headings every repo in the fleet now shares, so a loop
-session or a portfolio pass finds the same answer in the same place in every
-repo. Recalibrated 2026-11-25 around Autogenetica's loop (Seed → Assemble →
+2026-09-19 under six standard headings, so the same question always has its
+answer in the same place. Recalibrated 2026-11-25 around Autogenetica's loop (Seed → Assemble →
 Operate → Prove → Preserve, under human governance) after the maintainer
 pointed out the gem is far past plan-and-execute. Awaiting maintainer approval.
 
@@ -37,13 +36,11 @@ Ruby or adopting a framework the size of a small country.
 
 ## CONSTITUTION (what rules we must obey)
 
-The fleet's shared rules live in one place and this file links to them rather
-than pasting: the [operator's constitution](https://github.com/minerva-sky/workspace/blob/master/WORLD.md#constitution-what-rules-we-must-obey).
-That covers the autonomy ladder (L0 propose in an issue, L1 open a PR the
-maintainer merges, L2 merge after a quiet period on green CI, L3 merge on green
-CI and report in a digest), how a class gets promoted (maintainer approval on
-the acceptance record) and demoted (any revert, immediately), and the rule that
-gem releases and version bumps are the maintainer's alone.
+Agent contributions follow an autonomy ladder: L0 propose in an issue, L1 open
+a PR the maintainer merges, L2 merge after a quiet period on green CI, L3 merge
+on green CI and report in a digest. A class of change is promoted only by
+maintainer approval on its acceptance record, and demoted immediately by any
+revert. Gem releases and version bumps are the maintainer's alone.
 
 Local additions for agentic:
 
@@ -100,9 +97,8 @@ Improvements arrive as GitHub issues, labeled by origin and state:
   its final comment and is permanent institutional memory. Proposals must check
   closed and deferred issues before re-raising an idea.
 
-Each change class has an autonomy level per the constitution above. Every class
-starts at L0 or L1, and the current level per class is recorded on the
-operator's side, not here.
+Each change class has an autonomy level on the ladder above. Every class
+starts at L0 or L1 and moves only by maintainer approval.
 
 ## CHARTER (why this exists, what territory, what freedoms)
 
