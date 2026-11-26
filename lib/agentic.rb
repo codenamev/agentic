@@ -125,10 +125,10 @@ module Agentic
       # Register standard capabilities
       Capabilities.register_standard_capabilities
 
-      # Initialize the security, configuration, and performance subsystems
+      # Initialize the security and configuration subsystems. Performance
+      # initializes lazily on first use (Performance.ensure_initialized!)
       initialize_security
       initialize_configuration
-      initialize_performance
 
       # Assigned last: this ivar doubles as the initialized flag, so it must
       # only become visible once the store and engine are fully built
@@ -158,19 +158,12 @@ module Agentic
   end
 
   # Initialize performance optimization system
+  #
+  # Not called at boot: Performance builds itself with the environment
+  # preset the first time it is used. Call this to build it eagerly.
   def self.initialize_performance
-    env = ENV["AGENTIC_ENV"] || ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development"
-
-    case env
-    when "development", "test"
-      Performance.configure_for_development
-    when "production"
-      Performance.configure_for_production
-    else
-      Performance.initialize!
-    end
-
-    logger&.debug("Performance system initialized for #{env} environment")
+    Performance.ensure_initialized!
+    logger&.debug("Performance system initialized (#{Performance.optimizer.config[:strategy]} strategy)")
   rescue => e
     logger&.warn("Failed to initialize performance system: #{e.message}")
   end
