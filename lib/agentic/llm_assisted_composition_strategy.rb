@@ -29,13 +29,10 @@ module Agentic
       prompt = build_llm_prompt(requirements, available_capabilities)
 
       # Get LLM response
-      response = client.complete(
-        prompt: prompt,
-        response_format: {type: "json"}
-      )
+      response = client.complete([{role: "user", content: prompt}])
 
-      # Parse the response
-      suggested_capabilities = parse_llm_response(response.to_s, registry)
+      # Parse the response (the prompt asks for JSON; the parser extracts it)
+      suggested_capabilities = parse_llm_response(response.content.to_s, registry)
 
       # Fall back to default strategy if LLM suggestion fails
       if suggested_capabilities.empty?

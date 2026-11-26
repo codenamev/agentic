@@ -74,7 +74,7 @@ RSpec.describe Agentic::LlmAssistedCompositionStrategy do
         }.to_json
 
         allow(llm_client).to receive(:complete).and_return(llm_response)
-        allow(llm_response).to receive(:to_s).and_return(json_response)
+        allow(llm_response).to receive(:content).and_return(json_response)
       end
 
       it "returns the suggested capabilities with dependencies" do
@@ -82,6 +82,13 @@ RSpec.describe Agentic::LlmAssistedCompositionStrategy do
 
         expect(capabilities.size).to eq(2)
         expect(capabilities.map { |c| c[:name] }).to include("data_analysis", "text_generation")
+      end
+
+      it "sends the prompt as a user message (complete takes positional messages)" do
+        strategy.select_capabilities(requirements, registry)
+
+        expect(llm_client).to have_received(:complete)
+          .with([{role: "user", content: a_string_including("select the most appropriate capabilities")}])
       end
     end
 
@@ -96,7 +103,7 @@ RSpec.describe Agentic::LlmAssistedCompositionStrategy do
         }.to_json
 
         allow(llm_client).to receive(:complete).and_return(llm_response)
-        allow(llm_response).to receive(:to_s).and_return(json_response)
+        allow(llm_response).to receive(:content).and_return(json_response)
       end
 
       it "filters out invalid capabilities and falls back to the default strategy" do
@@ -115,7 +122,7 @@ RSpec.describe Agentic::LlmAssistedCompositionStrategy do
       before do
         # Mock the LLM response to return malformed JSON
         allow(llm_client).to receive(:complete).and_return(llm_response)
-        allow(llm_response).to receive(:to_s).and_return("This is not JSON")
+        allow(llm_response).to receive(:content).and_return("This is not JSON")
       end
 
       it "falls back to the default strategy" do
