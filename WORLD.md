@@ -9,8 +9,8 @@ proposal conflicts with this file, the proposal is wrong.
 Status: PROPOSED. Drafted 2026-08-13 as a seven-section charter. Restructured
 2026-09-19 under six standard headings, so the same question always has its
 answer in the same place. Recalibrated 2026-11-25 around Autogenetica's loop (Seed → Assemble →
-Operate → Prove → Preserve, under human governance) after the maintainer
-pointed out the gem is far past plan-and-execute. Awaiting maintainer approval.
+Operate → Prove → Preserve, under human governance). Awaiting maintainer
+approval.
 
 ## VISION (where we hope this goes)
 
@@ -79,12 +79,11 @@ observe doesn't count as built.
    the run pauses, a person answers, it resumes. Boundaries set at seed time
    hold through every later stage.
 4. **Provider-agnostic hypotheses.** Lean on RubyLLM for providers instead
-   of building our own layer; it already speaks to the major ones. That makes
+   of building our own layer. That makes
    model and parameters part of the hypothesis: a run can vary provider,
    model, temperature, and the rest, and the learning system records which
    combination worked for which kind of task and adapts what it picks next
-   time. Today the gem is OpenAI-only, so the first step is swapping the
-   client for RubyLLM without changing behavior.
+   time.
 
 Standing, not sequenced: good gem citizenship. Semantic versioning, honest
 CHANGELOG, current Ruby. Track the latest stable Ruby; do not carry EOL
