@@ -49,7 +49,8 @@ Local additions for agentic:
 - Public API changes follow semver and deprecation cycles. People's agents
   run on this.
 - Tests accompany every behavior change. CI (main.yml) gates merges.
-- No provider abstraction lands until the provider question below is decided.
+- Providers come through RubyLLM. No hand-rolled provider clients or a
+  parallel abstraction layer.
 
 Anti-goals, which are constraints wearing a different hat:
 
@@ -77,10 +78,13 @@ observe doesn't count as built.
 3. **Governance.** Human intervention is first-class state, not an exception:
    the run pauses, a person answers, it resumes. Boundaries set at seed time
    hold through every later stage.
-4. **Provider strategy** is still an open question. The gem is OpenAI-only
-   today. Whether to abstract providers (and which second provider earns the
-   abstraction) needs a researched proposal with a real cost, not a drive-by
-   PR. It's last because a second provider has to plug into everything above.
+4. **Provider-agnostic hypotheses.** Lean on RubyLLM for providers instead
+   of building our own layer; it already speaks to the major ones. That makes
+   model and parameters part of the hypothesis: a run can vary provider,
+   model, temperature, and the rest, and the learning system records which
+   combination worked for which kind of task and adapts what it picks next
+   time. Today the gem is OpenAI-only, so the first step is swapping the
+   client for RubyLLM without changing behavior.
 
 Standing, not sequenced: good gem citizenship. Semantic versioning, honest
 CHANGELOG, current Ruby. Track the latest stable Ruby; do not carry EOL
@@ -113,15 +117,15 @@ versioned store), the assembly engine that composes them, the orchestrator and
 plan format that run them, the execution journal and learning system that
 prove and preserve results, the intervention points where a human steps in,
 and the CLI that drives all of it. It does not own hosting, accounts,
-integrations beyond what the core needs to prove itself, or a second provider
-until one is chosen.
+integrations beyond what the core needs to prove itself, or provider clients
+(RubyLLM owns those).
 
 **Freedoms:** the agent may open issues on anything in this territory, open
 PRs at the class's autonomy level, and propose amendments to this file.
 
 **Constraints:** the agent never merges amendments to this file, never cuts a
-release or bumps a version, and never lands a provider abstraction ahead of
-the decision.
+release or bumps a version, and never adds a provider integration that
+bypasses RubyLLM.
 
 ## Amending this document
 
