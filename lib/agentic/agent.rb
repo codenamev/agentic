@@ -54,7 +54,7 @@ module Agentic
         if response.successful?
           response.content
         else
-          raise Errors::LlmError.new("LLM execution failed: #{response.error.message}", context: {prompt: prompt})
+          raise_llm_failure(response, prompt)
         end
       elsif has_capability?("text_generation")
         raise Errors::SchemaNotSupportedError,
@@ -195,7 +195,7 @@ module Agentic
         if response.successful?
           response.content
         else
-          raise Errors::LlmError.new("LLM execution failed: #{response.error.message}", context: {prompt: prompt})
+          raise_llm_failure(response, prompt)
         end
       else
         raise Errors::AgentNotConfiguredError
@@ -277,6 +277,18 @@ module Agentic
         - List all file references/dependencies
         - Generate only the files requested in the task
       CONTEXT
+    end
+
+    # Re-raises a typed LLM error as-is, so the orchestrator can tell an
+    # auth failure (pause for a human) from a rate limit (retry) from the
+    # rest. Only untyped failures get wrapped in a generic LlmError.
+    # @param response [LlmResponse] The unsuccessful response
+    # @param prompt [String] The prompt that was sent
+    # @raise [Errors::LlmError]
+    def raise_llm_failure(response, prompt)
+      raise response.error if response.error.is_a?(Errors::LlmError)
+
+      raise Errors::LlmError.new("LLM execution failed: #{response.error&.message}", context: {prompt: prompt})
     end
   end
 end
