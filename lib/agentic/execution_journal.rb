@@ -149,6 +149,10 @@ module Agentic
           record(:task_awaiting_human, task_id: task_id, description: task.description,
             error_type: failure.type, message: failure.message)
         end,
+        task_human_answered: chain(hooks[:task_human_answered]) do |task_id:, task:, answer:, recorded_task_id:|
+          record(:task_human_answered, task_id: task_id, recorded_task_id: recorded_task_id,
+            description: task.description, answer: answer)
+        end,
         plan_completed: chain(hooks[:plan_completed]) do |plan_id:, status:, execution_time:, tasks:, results:|
           record(:plan_completed, plan_id: plan_id, status: status, execution_time: execution_time)
         end
@@ -295,7 +299,9 @@ module Agentic
             state.human_answers.delete(task_id)
           end
         when "task_human_answered"
-          task_id = entry[:task_id]
+          # Ids are per-run: the answer closes the question under the id
+          # the pause was recorded with, not the re-run's fresh id.
+          task_id = entry[:recorded_task_id] || entry[:task_id]
           state.awaiting_human.delete(task_id)
           state.human_answers[task_id] = {answer: entry[:answer], answered_by: entry[:answered_by], at: entry[:at]}
         when "plan_completed"

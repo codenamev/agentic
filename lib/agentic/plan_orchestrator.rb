@@ -66,6 +66,7 @@ module Agentic
         after_task_success: ->(task_id:, task:, result:, duration:) {}, # Called after a task succeeds
         after_task_failure: ->(task_id:, task:, failure:, duration:) {}, # Called after a task fails
         task_awaiting_human: ->(task_id:, task:, failure:) {}, # Called when a failure needs a human before the task can re-run
+        task_human_answered: ->(task_id:, task:, answer:, recorded_task_id:) {}, # Called when a resume delivers a human's answer to a paused task
         plan_completed: ->(plan_id:, status:, execution_time:, tasks:, results:) {} # Called when plan completes
       }.merge(lifecycle_hooks)
     end
@@ -235,10 +236,17 @@ module Agentic
     # @return [PlanExecutionResult] The structured execution results
     # @raise [ArgumentError] If any task has no way to obtain an agent, if a
     #   pending task depends on an id that names no task in the plan, or if
-    #   pending tasks form a dependency cycle
-    def execute_plan(agent_provider = nil, resume_from: nil, &agent_factory)
+    #   pending tasks form a dependency cycle, or if answers: names a task
+    #   the journal has no open question for (unknown, or already answered)
+    # @param answers [Hash{String => Object}, nil] Answers for paused tasks,
+    #   keyed by the task id recorded in resume_from's task_awaiting_human
+    #   event. Each is journaled (task_human_answered) and merged into the
+    #   task's input as :human_answer before it re-runs. Requires resume_from:.
+    def execute_plan(agent_provider = nil, resume_from: nil, answers: nil, &agent_factory)
       agent_provider ||= agent_factory
+      raise ArgumentError, "answers: requires resume_from:" if answers && !resume_from
       restore_completed_tasks(resume_from) if resume_from
+      deliver_human_answers(resume_from, answers) if answers
       ensure_agents_resolvable!(agent_provider)
       ensure_dependencies_satisfiable!
 
@@ -435,6 +443,43 @@ module Agentic
       @dependencies.select do |task_id, _deps|
         @execution_state[:pending].include?(task_id) && all_dependencies_met?(task_id)
       end.keys
+    end
+
+    # Hands each answer to the paused task it was asked for. Validates the
+    # whole set before journaling any of it, so a bad key never leaves a
+    # half-answered journal behind.
+    # @param state [ExecutionJournal::ReplayedState] Replayed journal state
+    # @param answers [Hash] Answers keyed by recorded task id
+    # @return [void]
+    def deliver_human_answers(state, answers)
+      targets = answers.map do |recorded_id, answer|
+        recorded_id = recorded_id.to_s
+        if state.answered?(recorded_id)
+          raise ArgumentError, "task #{recorded_id} was already answered; a second answer needs a fresh pause"
+        end
+        unless state.awaiting_human?(recorded_id)
+          raise ArgumentError, "no task awaiting a human with id #{recorded_id}"
+        end
+
+        task = @tasks[recorded_id] || pending_task_described(state.descriptions[recorded_id])
+        raise ArgumentError, "task #{recorded_id} awaits a human but is not pending in this plan" unless task
+
+        [task, answer, recorded_id]
+      end
+
+      targets.each do |task, answer, recorded_id|
+        task.receive_human_answer(answer)
+        @lifecycle_hooks[:task_human_answered].call(task_id: task.id, task: task, answer: answer, recorded_task_id: recorded_id)
+      end
+    end
+
+    def pending_task_described(description)
+      return nil unless description
+
+      @execution_state[:pending].each do |task_id|
+        return @tasks[task_id] if @tasks[task_id].description == description
+      end
+      nil
     end
 
     # Marks tasks a prior run already completed as done, seeding their

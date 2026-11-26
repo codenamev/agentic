@@ -151,6 +151,14 @@ module Agentic
       notify_observers(:status_change, old_status, @status)
     end
 
+    # Adds a human's answer to the task's input (as :human_answer) so the
+    # re-run after a pause can act on it. Used when resuming with answers:.
+    # @param answer [Object] The human's answer
+    # @return [void]
+    def receive_human_answer(answer)
+      @input = input.merge(human_answer: answer)
+    end
+
     # Executes the task using the given agent
     # @param agent [Agent] The agent that will execute this task
     # @return [TaskResult] The result of the task execution
