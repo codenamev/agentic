@@ -145,6 +145,10 @@ module Agentic
             error: failure.message, error_type: failure.type,
             retryable: failure.respond_to?(:retryable?) ? failure.retryable? : nil)
         end,
+        task_awaiting_human: chain(hooks[:task_awaiting_human]) do |task_id:, task:, failure:|
+          record(:task_awaiting_human, task_id: task_id, description: task.description,
+            error_type: failure.type, message: failure.message)
+        end,
         plan_completed: chain(hooks[:plan_completed]) do |plan_id:, status:, execution_time:, tasks:, results:|
           record(:plan_completed, plan_id: plan_id, status: status, execution_time: execution_time)
         end

@@ -65,6 +65,7 @@ module Agentic
         task_slot_acquired: ->(task_id:, task:, waited:) {},  # Called when a concurrency slot is acquired
         after_task_success: ->(task_id:, task:, result:, duration:) {}, # Called after a task succeeds
         after_task_failure: ->(task_id:, task:, failure:, duration:) {}, # Called after a task fails
+        task_awaiting_human: ->(task_id:, task:, failure:) {}, # Called when a failure needs a human before the task can re-run
         plan_completed: ->(plan_id:, status:, execution_time:, tasks:, results:) {} # Called when plan completes
       }.merge(lifecycle_hooks)
     end
@@ -465,9 +466,14 @@ module Agentic
     end
 
     # Determines the overall status of the plan
-    # @return [Symbol] The overall status (:completed, :in_progress, or :partial_failure)
+    # @return [Symbol] The overall status (:completed, :awaiting_human, :canceled, :in_progress, or :partial_failure)
     def overall_status
-      if @execution_state[:failed].any?
+      failed = @execution_state[:failed]
+      if failed.any? && failed.all? { |id| awaiting_human_ids.include?(id) }
+        # Every failure is a question for a human, not a dead end: the run
+        # paused, and a resume with answers picks it up
+        :awaiting_human
+      elsif failed.any?
         :partial_failure
       elsif @execution_state[:canceled].any?
         # A plan with canceled tasks did not complete, even if every task
@@ -833,8 +839,15 @@ module Agentic
     # @param failure [TaskFailure] The failure details
     # @return [void]
     def request_human_intervention(task, failure)
-      # This would integrate with the yet-to-be-implemented human intervention system
       Agentic.logger.warn("Human intervention requested for task #{task.id}: #{failure.message}")
+      awaiting_human_ids.add(task.id)
+      @lifecycle_hooks[:task_awaiting_human].call(task_id: task.id, task: task, failure: failure)
+    end
+
+    # Ids of tasks paused for a human this run
+    # @return [Set<String>]
+    def awaiting_human_ids
+      @awaiting_human_ids ||= Set.new
     end
 
     # Records a successful task completion with proper state transition and result storage
