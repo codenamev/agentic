@@ -25,9 +25,23 @@ module Agentic
     # Replayed journal state: everything a resuming process needs to know
     ReplayedState = Struct.new(
       :plan_id, :status, :completed_task_ids, :failed_task_ids, :outputs, :failures, :events, :descriptions, :durations, :duration_samples, :damage,
-      :tokens,
+      :tokens, :awaiting_human, :human_answers,
       keyword_init: true
     ) do
+      # @param task_id [String] A task id from this journal
+      # @return [Boolean] True if the task is paused on an unanswered
+      #   question (ADR-023)
+      def awaiting_human?(task_id)
+        awaiting_human.key?(task_id)
+      end
+
+      # @param task_id [String] A task id from this journal
+      # @return [Boolean] True if a human answer was already recorded for
+      #   the task - the claim check that stops a double submit
+      def answered?(task_id)
+        human_answers.key?(task_id)
+      end
+
       # Token usage summed over every task_succeeded line that carried it.
       # nil when no line did (older journals, or runs that never reached an
       # LLM) - unknown is not zero, so it is never reported as zero.
@@ -84,6 +98,9 @@ module Agentic
         completed_task_ids.filter_map { |task_id| descriptions[task_id] }
       end
     end
+
+    # Events that describe one task and must carry a String task_id
+    TASK_EVENTS = %w[task_succeeded task_failed task_started task_awaiting_human task_human_answered].freeze
 
     # @return [String] Absolute path of the journal file
     attr_reader :path
@@ -205,7 +222,9 @@ module Agentic
         durations: {},
         duration_samples: Hash.new { |h, k| h[k] = [] },
         damage: [],
-        tokens: {}
+        tokens: {},
+        awaiting_human: {},
+        human_answers: {}
       )
 
       return state unless File.exist?(path)
@@ -226,7 +245,7 @@ module Agentic
           next
         end
 
-        if %w[task_succeeded task_failed task_started].include?(entry[:event]) && !entry[:task_id].is_a?(String)
+        if TASK_EVENTS.include?(entry[:event]) && !entry[:task_id].is_a?(String)
           if mode == :strict
             raise Errors::JournalDamagedError.new("#{entry[:event]} line missing a String task_id", line_number: line_number)
           end
@@ -245,6 +264,7 @@ module Agentic
           state.completed_task_ids << task_id unless state.completed_task_ids.include?(task_id)
           state.failed_task_ids.delete(task_id)
           state.failures.delete(task_id)
+          state.awaiting_human.delete(task_id)
           state.outputs[task_id] = entry[:output]
           state.tokens[task_id] = entry.slice(:prompt_tokens, :completion_tokens, :total_tokens) if entry.key?(:total_tokens)
           if entry[:description] && entry[:duration]
@@ -257,6 +277,23 @@ module Agentic
             state.failed_task_ids << task_id unless state.failed_task_ids.include?(task_id)
             state.failures[task_id] = {message: entry[:error], type: entry[:error_type], retryable: entry[:retryable]}
           end
+        when "task_awaiting_human"
+          task_id = entry[:task_id]
+          unless state.completed_task_ids.include?(task_id)
+            state.awaiting_human[task_id] = {
+              question: entry[:question] || entry[:message],
+              error_type: entry[:error_type],
+              message: entry[:message],
+              at: entry[:at]
+            }
+            # A fresh pause reopens the question: an answer from an
+            # earlier round no longer counts as the claim for this one.
+            state.human_answers.delete(task_id)
+          end
+        when "task_human_answered"
+          task_id = entry[:task_id]
+          state.awaiting_human.delete(task_id)
+          state.human_answers[task_id] = {answer: entry[:answer], answered_by: entry[:answered_by], at: entry[:at]}
         when "plan_completed"
           state.plan_id = entry[:plan_id]
           state.status = entry[:status]&.to_sym
