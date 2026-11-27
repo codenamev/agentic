@@ -8,7 +8,7 @@ require "faraday"
 module Agentic
   # Generic wrapper for LLM API clients
   class LlmClient
-    # @return [OpenAI::Client] The underlying LLM client instance
+    # @return [RubyLlmAdapter] The underlying LLM transport
     attr_reader :client, :last_response
 
     # @return [RetryHandler] The retry handler for transient errors
@@ -241,23 +241,13 @@ module Agentic
       JSON.parse(response.body)
     end
 
-    # Builds the transport behind `chat(parameters:)` for the configured
-    # llm_backend. Both speak OpenAI-shaped parameters and responses.
+    # Builds the transport behind `chat(parameters:)`. Every llm_backend
+    # now resolves to RubyLlmAdapter; `:openai` is a deprecated alias kept
+    # so existing configs keep working (see LegacyConfiguration#llm_backend=).
     # @param configuration [LegacyConfiguration]
-    # @return [OpenAI::Client, RubyLlmAdapter]
+    # @return [RubyLlmAdapter]
     def build_client(configuration)
-      return RubyLlmAdapter.from_configuration(configuration) if configuration.llm_backend == :ruby_llm
-
-      # Local endpoints (Ollama, etc.) ignore the token but the client
-      # requires one, so send an explicit placeholder rather than nil
-      client_options = {access_token: configuration.access_token || "local"}
-
-      # Add custom base URL if configured (for Ollama, etc.)
-      if configuration.api_base_url
-        client_options[:uri_base] = configuration.api_base_url
-      end
-
-      OpenAI::Client.new(**client_options)
+      RubyLlmAdapter.from_configuration(configuration)
     end
 
     # Extracts content from messages for logging purposes with security sanitization

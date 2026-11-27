@@ -58,6 +58,12 @@ module Agentic
         raise Errors::ConfigurationError,
           "Unknown llm_backend #{value.inspect}; expected one of #{LLM_BACKENDS.join(", ")}"
       end
+      if backend == :openai
+        Agentic.logger&.warn(
+          "llm_backend :openai is deprecated and now uses the RubyLLM transport; " \
+          "set llm_backend to :ruby_llm (or drop the setting) to silence this"
+        )
+      end
       @llm_backend = backend
     end
 

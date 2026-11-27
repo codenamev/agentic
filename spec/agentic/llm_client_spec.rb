@@ -20,25 +20,25 @@ RSpec.describe Agentic::LlmClient, :vcr do
   end
 
   describe ".new" do
-    it "initializes with OpenAI client" do
-      expect(OpenAI::Client).to receive(:new).with(access_token: access_token)
+    it "routes the deprecated :openai backend through RubyLlmAdapter" do
+      expect(OpenAI::Client).not_to receive(:new)
 
       client = described_class.new(config)
-      expect(client).to be_a(described_class)
+
+      expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+      expect(client.client.instance_variable_get(:@context).config.openai_api_key).to eq(access_token)
     end
 
-    context "with custom API base URL" do
+    context "with custom API base URL on the :openai backend" do
       before do
         allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434")
       end
 
-      it "configures client with custom base URL" do
-        expect(OpenAI::Client).to receive(:new).with(
-          access_token: access_token,
-          uri_base: "http://localhost:11434"
-        )
+      it "points the RubyLLM context at the base URL" do
+        adapter = described_class.new(config).client
 
-        described_class.new(config)
+        expect(adapter.instance_variable_get(:@context).config.openai_api_base).to eq("http://localhost:11434")
+        expect(adapter.instance_variable_get(:@assume_model_exists)).to be(true)
       end
     end
 
@@ -122,7 +122,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
   end
 
   describe "#complete" do
-    let(:openai_client) { instance_double(OpenAI::Client) }
+    let(:openai_client) { instance_double(Agentic::RubyLlmAdapter) }
     let(:success_response) do
       {
         "choices" => [
@@ -138,7 +138,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
     subject { described_class.new(config) }
 
     before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
+      allow(Agentic::RubyLlmAdapter).to receive(:from_configuration).and_return(openai_client)
       allow(openai_client).to receive(:chat).and_return(success_response)
     end
 

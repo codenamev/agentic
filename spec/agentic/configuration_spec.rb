@@ -17,7 +17,6 @@ RSpec.describe Agentic::LegacyConfiguration do
     end
     config.access_token = token
     config.api_base_url = base_url
-    config.llm_backend = :openai # legacy-transport specs; removed with ruby-openai (b3c)
     config
   end
 
@@ -73,6 +72,13 @@ RSpec.describe Agentic::LegacyConfiguration do
       expect { config.llm_backend = "anthropic" }
         .to raise_error(Agentic::Errors::ConfigurationError, /Unknown llm_backend/)
     end
+
+    it "still accepts :openai but warns that it is deprecated" do
+      config = fresh_configuration
+      expect(Agentic.logger).to receive(:warn).with(/llm_backend :openai is deprecated/)
+      config.llm_backend = :openai
+      expect(config.llm_backend).to eq(:openai)
+    end
   end
 
   describe "LlmClient fail-fast" do
@@ -91,7 +97,8 @@ RSpec.describe Agentic::LegacyConfiguration do
       )
 
       client = Agentic::LlmClient.new(Agentic::LlmConfig.new)
-      expect(client.client).to be_a(OpenAI::Client)
+      expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+      expect(client.client.instance_variable_get(:@context).config.openai_api_key).to eq("local")
     end
   end
 end
