@@ -828,10 +828,12 @@ module Agentic
                 description: {type: "string"},
                 instructions: {type: "string"}
               },
-              required: %w[name description instructions]
+              required: %w[name description instructions],
+              additionalProperties: false
             }
           },
-          required: %w[description agent]
+          required: %w[description agent],
+          additionalProperties: false
         }
         s.object :expected_answer do |o|
           o.string :format

@@ -71,7 +71,8 @@ module Agentic
               description: {type: "string"},
               instructions: {type: "string"}
             },
-            required: %w[name description instructions]
+            required: %w[name description instructions],
+            additionalProperties: false
           },
           depends_on: {type: "array", items: {type: "string"}},
           needs: {
@@ -97,7 +98,8 @@ module Agentic
         s.array :tasks, items: {
           type: "object",
           properties: properties,
-          required: required
+          required: required,
+          additionalProperties: false
         }
       end
 

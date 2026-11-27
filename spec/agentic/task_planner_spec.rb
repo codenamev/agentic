@@ -61,6 +61,20 @@ RSpec.describe Agentic::TaskPlanner do
         end
       end
 
+      it "closes every object in the schema, as strict structured outputs require" do
+        planner.analyze_goal
+
+        open_objects = lambda do |node, path|
+          next [] unless node.is_a?(Hash)
+          own = (node[:type] == "object" && node[:additionalProperties] != false) ? [path] : []
+          own + node.flat_map { |key, child| open_objects.call(child, "#{path}.#{key}") }
+        end
+
+        expect(client).to have_received(:complete) do |_messages, output_schema:, **|
+          expect(open_objects.call(output_schema.to_hash[:schema], "schema")).to eq([])
+        end
+      end
+
       it "carries the ids and edges into the task definitions" do
         planner.analyze_goal
 
