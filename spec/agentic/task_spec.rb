@@ -80,6 +80,25 @@ RSpec.describe Agentic::Task do
 
         expect(task.perform(agent).successful?).to be true
       end
+
+      it "records a successful generation as a JSON-safe hash" do
+        artifact = Agentic::Artifact.new(name: "owl.txt", type: :text, content: "hoot")
+        result = Agentic::ArtifactGenerationResult.success(artifacts: [artifact], workspace: workspace)
+        allow(agent).to receive(:execute).with(task).and_return(result)
+
+        output = task.perform(agent).output
+        expect(output).to include(success: true, artifact_count: 1, workspace_path: workspace.path)
+        expect(JSON.parse(JSON.generate(output))["artifacts"].first["name"]).to eq("owl.txt")
+      end
+
+      it "fails the task when generation fails" do
+        result = Agentic::ArtifactGenerationResult.failure(errors: ["no files parsed"], workspace: workspace)
+        allow(agent).to receive(:execute).with(task).and_return(result)
+
+        task_result = task.perform(agent)
+        expect(task_result.successful?).to be false
+        expect(task.failure.message).to include("no files parsed")
+      end
     end
 
     context "without a workspace" do
