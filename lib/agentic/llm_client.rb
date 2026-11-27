@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "openai"
 require "net/http"
 require "json"
 require "faraday"
@@ -323,7 +322,7 @@ module Agentic
     def stream_structured_response(parameters, output_schema, stream_callback)
       accumulated_content = ""
 
-      # Stream the response using ruby-openai
+      # Stream the response through the RubyLLM adapter
       response = client.chat(
         parameters: parameters.merge(
           stream: proc do |chunk, _bytesize|

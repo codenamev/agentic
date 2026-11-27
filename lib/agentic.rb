@@ -37,8 +37,8 @@ module Agentic
     attr_accessor :access_token, :agent_store_path, :api_base_url
 
     # @return [Symbol] LLM transport: :ruby_llm (RubyLlmAdapter, the default) or
-    #   :openai (ruby-openai, legacy). Transitional switch while the RubyLLM
-    #   swap lands; goes away once :ruby_llm is the only path.
+    #   :openai (deprecated alias that also builds RubyLlmAdapter and warns).
+    #   The alias goes away in a later release.
     attr_reader :llm_backend
 
     LLM_BACKENDS = %i[openai ruby_llm].freeze

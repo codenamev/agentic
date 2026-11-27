@@ -10,7 +10,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
   before do
     allow(Agentic.configuration).to receive(:access_token).and_return(access_token)
-    allow(Agentic.configuration).to receive(:llm_backend).and_return(:openai) # legacy transport; goes with ruby-openai
+    allow(Agentic.configuration).to receive(:llm_backend).and_return(:openai) # deprecated alias, still resolves to RubyLlmAdapter
     allow(Agentic.configuration).to receive(:api_base_url).and_return(nil)
     allow(config).to receive(:to_api_parameters).and_return(api_parameters)
     allow(Agentic.logger).to receive(:error)
@@ -21,8 +21,6 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
   describe ".new" do
     it "routes the deprecated :openai backend through RubyLlmAdapter" do
-      expect(OpenAI::Client).not_to receive(:new)
-
       client = described_class.new(config)
 
       expect(client.client).to be_a(Agentic::RubyLlmAdapter)
@@ -49,8 +47,6 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
 
       it "uses a RubyLlmAdapter on a private context instead of ruby-openai" do
-        expect(OpenAI::Client).not_to receive(:new)
-
         client = described_class.new(config)
 
         expect(client.client).to be_a(Agentic::RubyLlmAdapter)
@@ -151,7 +147,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
         expect(result.content).to eq("Test response")
       end
 
-      it "calls OpenAI client with correct parameters" do
+      it "calls the chat client with correct parameters" do
         expect(openai_client).to receive(:chat).with(parameters: api_parameters)
 
         subject.complete(messages)
