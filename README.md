@@ -1,6 +1,6 @@
 # Agentic
 
-A Ruby gem for building and running AI agents in a [plan-and-execute](https://blog.langchain.dev/planning-agents/#plan-and-execute) fashion. Agentic provides a simple command-line tool and library to build, manage, deploy, and run purpose-driven AI agents using OpenAI's LLM API.
+A Ruby gem, library and CLI, for agents that assemble themselves from small, reusable, composable parts. You seed it with a purpose and constraints; it picks capabilities (and other agents) from a versioned store, composes them, runs, observes what happened, and keeps what worked for next time. Plans, parts, and history stay readable and editable, inside boundaries you set. LLM calls currently go through OpenAI's API.
 
 ## What's New in v0.2.0
 
