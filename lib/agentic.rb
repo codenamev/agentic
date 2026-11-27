@@ -91,6 +91,7 @@ module Agentic
   # @param model [String, nil] Optional LLM model override
   # @param concurrency [Integer] Maximum number of tasks to run at once
   # @return [PlanExecutionResult] The structured execution results
+  # @raise [Errors::PlanningFailedError] when the LLM call for planning fails
   def self.run(goal, model: nil, concurrency: 5)
     config = LlmConfig.new
     config.model = model if model
