@@ -10,6 +10,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
   before do
     allow(Agentic.configuration).to receive(:access_token).and_return(access_token)
+    allow(Agentic.configuration).to receive(:llm_backend).and_return(:openai) # legacy transport; goes with ruby-openai
     allow(Agentic.configuration).to receive(:api_base_url).and_return(nil)
     allow(config).to receive(:to_api_parameters).and_return(api_parameters)
     allow(Agentic.logger).to receive(:error)

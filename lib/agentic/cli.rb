@@ -901,7 +901,7 @@ module Agentic
 
     # Selects the LLM transport. Precedence: --backend, then the
     # AGENTIC_LLM_BACKEND env var (already read by the configuration),
-    # then llm_backend in .agentic.yml (project over user), then :openai.
+    # then llm_backend in .agentic.yml (project over user), then :ruby_llm.
     #
     # @raise [Thor::Error] for an unknown backend name
     def apply_llm_backend!

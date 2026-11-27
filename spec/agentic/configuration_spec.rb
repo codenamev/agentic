@@ -17,6 +17,7 @@ RSpec.describe Agentic::LegacyConfiguration do
     end
     config.access_token = token
     config.api_base_url = base_url
+    config.llm_backend = :openai # legacy-transport specs; removed with ruby-openai (b3c)
     config
   end
 
@@ -55,10 +56,10 @@ RSpec.describe Agentic::LegacyConfiguration do
   end
 
   describe "#llm_backend" do
-    it "defaults to :openai" do
+    it "defaults to :ruby_llm" do
       config = nil
       without_env("AGENTIC_LLM_BACKEND") { config = described_class.new }
-      expect(config.llm_backend).to eq(:openai)
+      expect(config.llm_backend).to eq(:ruby_llm)
     end
 
     it "accepts :ruby_llm as a string or symbol" do

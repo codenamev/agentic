@@ -6,6 +6,9 @@ require "stringio"
 RSpec.describe "CLI plan command integration", :vcr do
   let(:output) { StringIO.new }
 
+  # Cassette was recorded on the legacy ruby-openai transport.
+  before { allow(Agentic.configuration).to receive(:llm_backend).and_return(:openai) }
+
   # Capture stdout for testing CLI output
   around do |example|
     original_stdout = $stdout

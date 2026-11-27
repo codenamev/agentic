@@ -36,8 +36,8 @@ module Agentic
   class LegacyConfiguration
     attr_accessor :access_token, :agent_store_path, :api_base_url
 
-    # @return [Symbol] LLM transport: :openai (ruby-openai, the default) or
-    #   :ruby_llm (RubyLlmAdapter). Transitional switch while the RubyLLM
+    # @return [Symbol] LLM transport: :ruby_llm (RubyLlmAdapter, the default) or
+    #   :openai (ruby-openai, legacy). Transitional switch while the RubyLLM
     #   swap lands; goes away once :ruby_llm is the only path.
     attr_reader :llm_backend
 
@@ -47,7 +47,7 @@ module Agentic
       @access_token = ENV["OPENAI_ACCESS_TOKEN"] || ENV["AGENTIC_API_TOKEN"]
       @agent_store_path = ENV["AGENTIC_AGENT_STORE_PATH"] || File.join(Dir.home, ".agentic", "agents")
       @api_base_url = ENV["AGENTIC_API_BASE_URL"] || ENV["OPENAI_BASE_URL"]
-      self.llm_backend = ENV["AGENTIC_LLM_BACKEND"] || :openai
+      self.llm_backend = ENV["AGENTIC_LLM_BACKEND"] || :ruby_llm
     end
 
     # @param value [Symbol, String] one of LLM_BACKENDS
