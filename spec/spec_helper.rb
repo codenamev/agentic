@@ -28,28 +28,6 @@ Agentic.configure do |config|
   config.access_token ||= "test-token"
 end
 
-# Compatibility shims for ruby-openai 8.x
-# The gem simplified error classes, but our tests expect the old ones.
-# Zeitwerk defers loading LlmClient (and with it the openai gem), so load
-# the gem here before reopening its namespace.
-require "openai"
-unless defined?(OpenAI::RateLimitError)
-  module OpenAI
-    # Define missing error classes as subclasses of OpenAI::Error for test compatibility
-    class RateLimitError < Error; end
-
-    class AuthenticationError < Error; end
-
-    class APIError < Error; end
-
-    class APIConnectionError < Error; end
-
-    class InvalidRequestError < Error; end
-
-    class Timeout < Error; end
-  end
-end
-
 # Load test factories
 Dir[File.join(__dir__, "factories", "*.rb")].each { |f| require f }
 

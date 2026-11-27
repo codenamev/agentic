@@ -308,10 +308,10 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
-    context "with OpenAI errors" do
-      let(:timeout_error) { OpenAI::Timeout.new("Request timeout") }
-      let(:rate_limit_error) { OpenAI::RateLimitError.new("Rate limit exceeded") }
-      let(:auth_error) { OpenAI::AuthenticationError.new("Invalid API key") }
+    context "with HTTP errors" do
+      let(:timeout_error) { Faraday::TimeoutError.new("Request timeout") }
+      let(:rate_limit_error) { Faraday::TooManyRequestsError.new("Rate limit exceeded", {status: 429, headers: {}}) }
+      let(:auth_error) { Faraday::UnauthorizedError.new("Invalid API key", {status: 401, headers: {}}) }
 
       context "when timeout error occurs" do
         before do
@@ -334,7 +334,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
         end
       end
 
-      context "when the HTTP layer raises Faraday::TooManyRequestsError (ruby-openai 8.x)" do
+      context "when the HTTP layer raises Faraday::TooManyRequestsError" do
         let(:faraday_429) do
           Faraday::TooManyRequestsError.new(nil, {status: 429, headers: {"retry-after" => "1"}, body: "rate limited"})
         end
@@ -392,7 +392,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
     end
 
     context "when the provider error carries a secret" do
-      let(:leaky_error) { OpenAI::AuthenticationError.new("Incorrect API key provided: sk-abcdefghijklmnop1234") }
+      let(:leaky_error) { Faraday::UnauthorizedError.new("Incorrect API key provided: sk-abcdefghijklmnop1234", {status: 401, headers: {}}) }
 
       before do
         Agentic::Security::Config.configure(enable_pii_detection: true)
@@ -417,7 +417,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
     context "when the provider error body has invalid bytes" do
       let(:garbled) { (+"Incorrect API key provided: sk-abcdefghijklmnop1234 \xFF\xFE").force_encoding("UTF-8") }
-      let(:leaky_error) { OpenAI::AuthenticationError.new(garbled) }
+      let(:leaky_error) { Faraday::UnauthorizedError.new(garbled, {status: 401, headers: {}}) }
 
       before do
         Agentic::Security::Config.configure(enable_pii_detection: true)
@@ -628,105 +628,51 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
-    describe "#map_openai_error" do
-      context "with Faraday errors re-raised by ruby-openai 8.x" do
+    describe "#map_http_error" do
+      context "with Faraday errors" do
         def faraday_error(klass, status, headers: {}, body: nil)
           klass.new(nil, {status: status, headers: headers, body: body})
         end
 
         it "maps 429 to LlmRateLimitError with retry-after" do
           error = faraday_error(Faraday::TooManyRequestsError, 429, headers: {"retry-after" => "7"}, body: "slow down")
-          mapped = subject.send(:map_openai_error, error)
+          mapped = subject.send(:map_http_error, error)
           expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
           expect(mapped.retry_after).to eq(7)
         end
 
         it "maps 401 and 403 to LlmAuthenticationError" do
-          expect(subject.send(:map_openai_error, faraday_error(Faraday::UnauthorizedError, 401)))
+          expect(subject.send(:map_http_error, faraday_error(Faraday::UnauthorizedError, 401)))
             .to be_a(Agentic::Errors::LlmAuthenticationError)
-          expect(subject.send(:map_openai_error, faraday_error(Faraday::ForbiddenError, 403)))
+          expect(subject.send(:map_http_error, faraday_error(Faraday::ForbiddenError, 403)))
             .to be_a(Agentic::Errors::LlmAuthenticationError)
         end
 
         it "maps 400, 404 and 422 to LlmInvalidRequestError" do
           [[Faraday::BadRequestError, 400], [Faraday::ResourceNotFound, 404], [Faraday::UnprocessableEntityError, 422]].each do |klass, status|
-            expect(subject.send(:map_openai_error, faraday_error(klass, status)))
+            expect(subject.send(:map_http_error, faraday_error(klass, status)))
               .to be_a(Agentic::Errors::LlmInvalidRequestError)
           end
         end
 
         it "maps 5xx to LlmServerError" do
-          mapped = subject.send(:map_openai_error, faraday_error(Faraday::ServerError, 503, body: "upstream down"))
+          mapped = subject.send(:map_http_error, faraday_error(Faraday::ServerError, 503, body: "upstream down"))
           expect(mapped).to be_a(Agentic::Errors::LlmServerError)
         end
 
         it "maps a Faraday::Error with no HTTP status to LlmNetworkError" do
-          mapped = subject.send(:map_openai_error, Faraday::Error.new("socket reset"))
+          mapped = subject.send(:map_http_error, Faraday::Error.new("socket reset"))
           expect(mapped).to be_a(Agentic::Errors::LlmNetworkError)
         end
 
         it "still maps Faraday::TimeoutError to LlmTimeoutError" do
-          mapped = subject.send(:map_openai_error, Faraday::TimeoutError.new("execution expired"))
-          expect(mapped).to be_a(Agentic::Errors::LlmTimeoutError)
-        end
-      end
-      context "with different OpenAI error types" do
-        let(:timeout_error) { OpenAI::Timeout.new("Request timeout") }
-        let(:rate_limit_error) { OpenAI::RateLimitError.new("Rate limit") }
-        let(:auth_error) { OpenAI::AuthenticationError.new("Auth failed") }
-        let(:connection_error) { OpenAI::APIConnectionError.new("Connection failed") }
-        let(:invalid_request_error) { OpenAI::InvalidRequestError.new("Invalid request") }
-        let(:api_error) { OpenAI::APIError.new("Server error") }
-        let(:generic_error) { OpenAI::Error.new("Generic error") }
-
-        it "maps timeout error correctly" do
-          mapped = subject.send(:map_openai_error, timeout_error)
+          mapped = subject.send(:map_http_error, Faraday::TimeoutError.new("execution expired"))
           expect(mapped).to be_a(Agentic::Errors::LlmTimeoutError)
         end
 
-        it "maps rate limit error correctly" do
-          mapped = subject.send(:map_openai_error, rate_limit_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
-        end
-
-        it "maps authentication error correctly" do
-          mapped = subject.send(:map_openai_error, auth_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmAuthenticationError)
-        end
-
-        it "maps connection error correctly" do
-          mapped = subject.send(:map_openai_error, connection_error)
+        it "maps Faraday::ConnectionFailed to LlmNetworkError" do
+          mapped = subject.send(:map_http_error, Faraday::ConnectionFailed.new("connection refused"))
           expect(mapped).to be_a(Agentic::Errors::LlmNetworkError)
-        end
-
-        it "maps invalid request error correctly" do
-          mapped = subject.send(:map_openai_error, invalid_request_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmInvalidRequestError)
-        end
-
-        it "maps API error correctly" do
-          mapped = subject.send(:map_openai_error, api_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmServerError)
-        end
-
-        it "maps generic error correctly" do
-          mapped = subject.send(:map_openai_error, generic_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmError)
-        end
-      end
-
-      context "with response metadata" do
-        let(:response_double) { double("Response", headers: {"retry-after" => "60"}, to_h: {"error" => "details"}) }
-        let(:rate_limit_error) do
-          error = OpenAI::RateLimitError.new("Rate limit")
-          allow(error).to receive(:response).and_return(response_double)
-          error
-        end
-
-        it "includes retry-after header in rate limit error" do
-          mapped = subject.send(:map_openai_error, rate_limit_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
-          expect(mapped.retry_after).to eq(60)
         end
       end
     end
