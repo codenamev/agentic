@@ -31,6 +31,13 @@ A run that needs a human pauses by writing to the journal and exiting cleanly. R
 4. **Resume payload.** `execute_plan(resume_from: state, answers: {task_id => String})`. For each answered task the orchestrator records `task_human_answered` (task id, answer, `answered_by` when known), then re-runs the task with the answer added to its input under `human_response:`. Unanswered awaiting tasks stay paused and the run ends `awaiting_human` again. An answer for a task that isn't awaiting raises `ArgumentError` before anything runs.
 5. **CLI.** `agentic resume JOURNAL --answer TASK=TEXT` (repeatable) and `agentic pending JOURNAL` to list open questions. Both read the journal, so they work from any process.
 6. **Double submit.** Resume takes the journal's `flock` for the claim: it re-replays under the lock and refuses if the task already has a `task_human_answered` or `task_succeeded`. Two people answering the same question get one run and one clear error.
+7. **Tool-level questions (amendment).** Points 1–6 cover pauses the orchestrator can see: a task fails with an auth, permission or config error. They can't see the other kind, where a tool inside an agent's chat needs a human mid-call ("approve this write", "pick one of these three"). RubyLLM 2.2 already models that one: `requires_approval`, `Tool#ask(message, choices:)`, `chat.pending_questions`, `approve`/`decline`/`answer`, then `complete` re-runs `execute` with the answer. We use those primitives and don't rebuild Portal's approval and choice kinds. The journal stands in for the database RubyLLM's docs assume:
+   * When an agent's chat ends with pending questions, the task records `task_awaiting_human` with `questions:` (one entry per pending question: `id`, `kind` of `approval` or `input`, `message`, and `choices` or `fields` when present) plus `chat_state:`, the chat's messages and tool-call state as JSON. `question` stays as a one-line summary, so old readers still have something to show.
+   * Resume accepts `answers: {task_id => String | {question_id => value}}`. A String still means the task-level answer from point 4. A Hash is routed to the rebuilt chat: approvals as `approve`/`decline(note)`, everything else as `answer(id, value)`. Then `complete` runs.
+   * The rebuilt chat gets its state from a journal-backed subclass of `RubyLLM::Chat::ToolCallState`, the same seam RubyLLM's ActiveRecord integration overrides (`input`/`record_input`/`decision`/`record_decision`). No ActiveRecord, no second store.
+   * A tool-level question that a human never answers behaves like any other awaiting task: dependents held, run ends `awaiting_human`.
+
+   A spike against ruby_llm 2.2.3 confirmed the round trip offline. Process 1 paused on one `ask` with choices and one `requires_approval`, then dumped state. Process 2 restored it, saw both questions in `pending_questions`, answered one, approved the other, and `complete` produced both tool results. `ToolCallState` is undocumented, so we pin `ruby_llm ~> 2.2` and add a contract spec that fails loudly if its interface moves.
 
 **Architectural Components Affected:**
 * `PlanOrchestrator`: `request_human_intervention` writes the pause; new `:awaiting_human` task and plan status; `answers:` on `execute_plan`
@@ -59,7 +66,8 @@ A run that needs a human pauses by writing to the journal and exiting cleanly. R
 
 ### Neutral
 
-* Portal's richer request kinds (approval, choice lists, priorities) aren't carried over. If someone needs them, `question` can grow a structured form later without a new event.
+* Portal's richer request kinds don't come over as Portal code. Approval and choice lists come back through RubyLLM's tool primitives (point 7), in the same `task_awaiting_human` event. Priorities don't come back at all; nothing has asked for them.
+* `chat_state` makes the pause event larger, and it holds the conversation so far. That's the same exposure as answers (see Negative), just more of it.
 
 ## Implementation
 
@@ -67,6 +75,11 @@ A run that needs a human pauses by writing to the journal and exiting cleanly. R
 * Journal events + `ReplayedState#awaiting_human`, with replay specs for old journals
 * Orchestrator pause path and `answers:` resume, claim under `flock`
 * `agentic resume --answer`, `agentic pending`
+
+**Phase 1b: tool-level questions (after the RubyLLM backend lands)**
+* Journal-backed `ToolCallState` subclass + contract spec against the pinned ruby_llm
+* `questions:`/`chat_state:` on the pause event, Hash answers on resume
+* `pending` prints choices and fields; `--answer TASK.QUESTION=VALUE` for the CLI
 
 **Phase 2: Portal deprecation**
 * `Portal.new` and `agentic intervention *` warn once per process and point at `pending` / `resume --answer`
@@ -90,3 +103,4 @@ Durable, but it splits one run's history across two files that can disagree afte
 * A spec that pauses a run, exits, replays the journal in a fresh orchestrator, answers, and asserts the answer reached the task input and the dependents ran.
 * A spec that submits the same answer twice from two processes and asserts exactly one re-run.
 * A live CLI run: `execute --journal`, hit an auth failure on purpose, `pending`, `resume --answer`.
+* A spec where a tool calls `ask` with choices and another needs approval: the run pauses, a fresh process replays the journal, answers both, and both tool results reach the agent's output.
