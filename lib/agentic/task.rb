@@ -152,6 +152,11 @@ module Agentic
       begin
         @output = if has_output_schema?
           agent.execute_with_schema(build_prompt, output_schema)
+        elsif requires_artifacts? && has_workspace?
+          # Hand the task itself over so the agent takes its artifact path
+          # (ArtifactGenerator -> Workspace). Passing the prompt String here
+          # meant --workspace runs never wrote a file.
+          agent.execute(self)
         else
           agent.execute(build_prompt)
         end
