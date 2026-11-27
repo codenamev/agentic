@@ -384,8 +384,12 @@ module Agentic
     # @param failure [TaskFailure] The failure details
     # @return [Boolean] True if human intervention is required
     def requires_intervention?(failure:)
-      # For now, we only identify a few error types that need human help
-      %w[AuthenticationError PermissionDeniedError ConfigurationError].include?(failure.type)
+      # For now, we only identify a few error types that need human help.
+      # TaskFailure#type is the full class name, so compare the last segment:
+      # Agentic::Errors::LlmAuthenticationError has to pause, not just a bare
+      # AuthenticationError.
+      %w[AuthenticationError LlmAuthenticationError PermissionDeniedError ConfigurationError]
+        .include?(failure.type.to_s.split("::").last)
     end
 
     # Applies a delay based on the backoff strategy before retrying

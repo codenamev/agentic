@@ -140,5 +140,11 @@ RSpec.describe Agentic::PlanOrchestrator, "configuration" do
       expect(needs_intervention).to be true
       expect(doesnt_need_intervention).to be false
     end
+
+    it "pauses for the namespaced provider auth error a real 401 produces" do
+      failure = Agentic::TaskFailure.from_exception(Agentic::Errors::LlmAuthenticationError.new("401"))
+
+      expect(described_class.new.send(:requires_intervention?, failure: failure)).to be true
+    end
   end
 end

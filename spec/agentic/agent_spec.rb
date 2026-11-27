@@ -51,6 +51,28 @@ RSpec.describe Agentic::Agent do
       expect(agent.execute_with_schema("What is the answer?", schema)).to eq({"answer" => 42})
     end
 
+    it "re-raises a typed LLM error as-is, so an auth failure stays an auth failure" do
+      error = Agentic::Errors::LlmAuthenticationError.new("401 from provider")
+      response = instance_double(Agentic::LlmResponse, successful?: false, error: error, stats: nil)
+      llm_client = instance_double(Agentic::LlmClient)
+      allow(llm_client).to receive(:complete).and_return(response)
+
+      agent = Agentic::Agent.build { |a| a.llm_client = llm_client }
+
+      expect { agent.execute_with_schema("q", schema) }.to raise_error(Agentic::Errors::LlmAuthenticationError, "401 from provider")
+      expect { agent.execute("q") }.to raise_error(Agentic::Errors::LlmAuthenticationError)
+    end
+
+    it "wraps an untyped failure in a generic LlmError" do
+      response = instance_double(Agentic::LlmResponse, successful?: false, error: StandardError.new("boom"), stats: nil)
+      llm_client = instance_double(Agentic::LlmClient)
+      allow(llm_client).to receive(:complete).and_return(response)
+
+      agent = Agentic::Agent.build { |a| a.llm_client = llm_client }
+
+      expect { agent.execute_with_schema("q", schema) }.to raise_error(Agentic::Errors::LlmError, "LLM execution failed: boom")
+    end
+
     it "remembers the response's token usage as last_stats" do
       stats = Agentic::GenerationStats.new(id: "gen-1", prompt_tokens: 12, completion_tokens: 30, total_tokens: 42)
       response = instance_double(Agentic::LlmResponse, successful?: true, content: {"answer" => 42}, stats: stats)
