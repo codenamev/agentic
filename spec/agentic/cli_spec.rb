@@ -41,6 +41,75 @@ RSpec.describe Agentic::CLI do
     end
   end
 
+  describe "#apply_llm_backend!" do
+    let(:configuration) { Agentic::LegacyConfiguration.new }
+    let(:dir) { Dir.mktmpdir }
+    let(:project_path) { File.join(dir, "project.yml") }
+    let(:user_path) { File.join(dir, "user.yml") }
+
+    before do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("AGENTIC_LLM_BACKEND").and_return(nil)
+      configuration.llm_backend = :openai
+      allow(Agentic).to receive(:configuration).and_return(configuration)
+      stub_const("Agentic::CLI::ConfigCommands::PROJECT_CONFIG_PATH", project_path)
+      stub_const("Agentic::CLI::ConfigCommands::USER_CONFIG_PATH", user_path)
+    end
+
+    after { FileUtils.remove_entry(dir) }
+
+    def apply(options = {})
+      described_class.new([], options).send(:apply_llm_backend!)
+    end
+
+    it "leaves the default alone with no flag, env, or config" do
+      apply
+      expect(configuration.llm_backend).to eq(:openai)
+    end
+
+    it "takes --backend" do
+      apply(backend: "ruby_llm")
+      expect(configuration.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "reads llm_backend from the config file, project over user" do
+      File.write(user_path, YAML.dump("llm_backend" => "openai"))
+      File.write(project_path, YAML.dump("llm_backend" => "ruby_llm"))
+      apply
+      expect(configuration.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "falls back to the user config file" do
+      File.write(user_path, YAML.dump("llm_backend" => "ruby_llm"))
+      apply
+      expect(configuration.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "lets the env var beat the config file" do
+      allow(ENV).to receive(:[]).with("AGENTIC_LLM_BACKEND").and_return("openai")
+      File.write(project_path, YAML.dump("llm_backend" => "ruby_llm"))
+      apply
+      expect(configuration.llm_backend).to eq(:openai)
+    end
+
+    it "lets --backend beat the config file" do
+      File.write(project_path, YAML.dump("llm_backend" => "ruby_llm"))
+      apply(backend: "openai")
+      expect(configuration.llm_backend).to eq(:openai)
+    end
+
+    it "turns an unknown backend into a Thor::Error" do
+      expect { apply(backend: "bogus") }.to raise_error(Thor::Error, /Unknown llm_backend "bogus"/)
+    end
+
+    it "is applied by plan before the token check" do
+      cli = described_class.new([], backend: "ruby_llm")
+      allow(cli).to receive(:check_api_token!).and_raise(Thor::Error, "stop")
+      expect { cli.plan("goal") }.to raise_error(Thor::Error, "stop")
+      expect(configuration.llm_backend).to eq(:ruby_llm)
+    end
+  end
+
   describe "agent commands" do
     describe "agent list" do
       it "displays available agents" do
