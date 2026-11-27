@@ -511,85 +511,96 @@ RSpec.describe Agentic::LlmClient, :vcr do
     end
   end
 
-  describe "#models" do
-    let(:openai_client) { instance_double(OpenAI::Client) }
-    let(:models_response) { {"data" => [{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}]} }
-    let(:models_client) { double("OpenAI::Models") }
+  describe "provider metadata endpoints (plain HTTP, any backend)", vcr: false do
+    include WebMock::API
 
     subject { described_class.new(config) }
 
-    before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
-      allow(openai_client).to receive(:models).and_return(models_client)
-      allow(models_client).to receive(:list).and_return(models_response)
-    end
+    after { WebMock.reset! }
 
-    it "returns available models" do
-      result = subject.models
+    [:openai, :ruby_llm].each do |backend|
+      context "with llm_backend #{backend.inspect}" do
+        before { allow(Agentic.configuration).to receive(:llm_backend).and_return(backend) }
 
-      expect(result).to eq([{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}])
-    end
+        describe "#models" do
+          it "GETs /v1/models with the bearer token and returns data" do
+            stub_request(:get, "https://api.openai.com/v1/models")
+              .with(headers: {"Authorization" => "Bearer test-token"})
+              .to_return(status: 200, body: {data: [{id: "gpt-4"}, {id: "gpt-3.5-turbo"}]}.to_json)
 
-    context "when API error occurs" do
-      let(:api_error) { OpenAI::APIError.new("Server error") }
+            expect(subject.models).to eq([{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}])
+          end
 
-      before do
-        allow(models_client).to receive(:list).and_raise(api_error)
-      end
+          it "returns nil on a 500" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 500, body: "{}")
 
-      it "returns nil on error" do
-        result = subject.models
+            expect(subject.models).to be_nil
+          end
 
-        expect(result).to be_nil
-      end
+          it "raises a typed server error on a 500 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 500, body: "{}")
 
-      context "with fail_on_error true" do
-        it "raises mapped error" do
-          expect do
-            subject.models(fail_on_error: true)
-          end.to raise_error(Agentic::Errors::LlmServerError)
+            expect { subject.models(fail_on_error: true) }.to raise_error(Agentic::Errors::LlmServerError)
+          end
+
+          it "raises a typed auth error on a 401 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 401, body: "{}")
+
+            expect { subject.models(fail_on_error: true) }.to raise_error(Agentic::Errors::LlmAuthenticationError)
+          end
+        end
+
+        describe "#query_generation_stats" do
+          let(:stats) { {"data" => {"id" => "gen_123", "total_cost" => 0.001}} }
+
+          it "GETs /generation?id= and returns the parsed body" do
+            stub_request(:get, "https://api.openai.com/v1/generation")
+              .with(query: {id: "gen_123"})
+              .to_return(status: 200, body: stats.to_json)
+
+            expect(subject.query_generation_stats("gen_123")).to eq(stats)
+          end
+
+          it "returns nil on a 404" do
+            stub_request(:get, "https://api.openai.com/v1/generation").with(query: {id: "nope"}).to_return(status: 404, body: "{}")
+
+            expect(subject.query_generation_stats("nope")).to be_nil
+          end
+
+          it "raises a typed invalid-request error on a 404 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/generation").with(query: {id: "nope"}).to_return(status: 404, body: "{}")
+
+            expect { subject.query_generation_stats("nope", fail_on_error: true) }
+              .to raise_error(Agentic::Errors::LlmInvalidRequestError)
+          end
         end
       end
     end
-  end
 
-  describe "#query_generation_stats" do
-    let(:openai_client) { double("OpenAI::Client") }
-    let(:generation_id) { "gen_123" }
-    let(:stats_response) { {"usage" => {"total_tokens" => 100}} }
+    describe "base URL handling" do
+      before { allow(Agentic.configuration).to receive(:llm_backend).and_return(:ruby_llm) }
 
-    subject { described_class.new(config) }
+      {
+        "https://openrouter.ai/api/v1" => "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/" => "https://openrouter.ai/api/v1/models",
+        "http://localhost:11434" => "http://localhost:11434/v1/models"
+      }.each do |base, expected|
+        it "resolves #{base} to #{expected}" do
+          allow(Agentic.configuration).to receive(:api_base_url).and_return(base)
+          stub_request(:get, expected).to_return(status: 200, body: {data: []}.to_json)
 
-    before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
-      allow(openai_client).to receive(:query_generation_stats).and_return(stats_response)
-    end
-
-    it "returns generation stats" do
-      result = subject.query_generation_stats(generation_id)
-
-      expect(result).to eq(stats_response)
-    end
-
-    context "when API error occurs" do
-      let(:api_error) { OpenAI::InvalidRequestError.new("Invalid generation ID") }
-
-      before do
-        allow(openai_client).to receive(:query_generation_stats).and_raise(api_error)
-      end
-
-      it "returns nil on error" do
-        result = subject.query_generation_stats(generation_id)
-
-        expect(result).to be_nil
-      end
-
-      context "with fail_on_error true" do
-        it "raises mapped error" do
-          expect do
-            subject.query_generation_stats(generation_id, fail_on_error: true)
-          end.to raise_error(Agentic::Errors::LlmInvalidRequestError)
+          expect(subject.models).to eq([])
         end
+      end
+
+      it "sends no Authorization header when there is no token" do
+        allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434/v1")
+        allow(Agentic.configuration).to receive(:access_token).and_return(nil)
+        stub_request(:get, "http://localhost:11434/v1/models")
+          .with { |req| !req.headers.key?("Authorization") }
+          .to_return(status: 200, body: {data: []}.to_json)
+
+        expect(subject.models).to eq([])
       end
     end
   end

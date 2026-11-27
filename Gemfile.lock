@@ -6,6 +6,7 @@ PATH
       cgi (~> 0.4)
       concurrent-ruby (~> 1.0)
       dry-schema (~> 1.13)
+      faraday (>= 1.10, < 3)
       logger (~> 1.6)
       ostruct (~> 0.6)
       pastel (~> 0.8)
