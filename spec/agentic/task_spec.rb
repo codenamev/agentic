@@ -71,6 +71,25 @@ RSpec.describe Agentic::Task do
       end
     end
 
+    context "when the task has a workspace" do
+      let(:workspace) { Agentic::Workspace.new(Dir.mktmpdir) }
+      let(:task) { described_class.new(description: description, agent_spec: agent_spec, input: input, workspace: workspace) }
+
+      it "hands the task itself to the agent so it takes the artifact path" do
+        expect(agent).to receive(:execute).with(task).and_return(output)
+
+        expect(task.perform(agent).successful?).to be true
+      end
+    end
+
+    context "without a workspace" do
+      it "hands the agent the prompt string" do
+        expect(agent).to receive(:execute).with(kind_of(String)).and_return(output)
+
+        task.perform(agent)
+      end
+    end
+
     context "when execution fails" do
       let(:error) { StandardError.new("Test error") }
 
