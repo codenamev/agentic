@@ -152,8 +152,8 @@ module Agentic
       else
         error_message = response.error&.message || response.refusal || "Unknown error"
         Agentic.logger.error("Failed to analyze goal: #{error_message}")
-        @observer&.planning_failed("Goal analysis failed: #{error_message}")
         @tasks = []
+        raise Errors::PlanningFailedError.new("Goal analysis failed: #{error_message}", llm_error: response.error)
       end
     end
 
@@ -202,6 +202,7 @@ module Agentic
 
     # Executes the entire planning process
     # @return [ExecutionPlan] The structured execution plan
+    # @raise [Errors::PlanningFailedError] when the LLM call for goal analysis fails
     def plan
       analyze_goal
       determine_expected_answer
