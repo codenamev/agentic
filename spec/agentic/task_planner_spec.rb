@@ -149,5 +149,20 @@ RSpec.describe Agentic::TaskPlanner do
         expect(Agentic.logger).to have_received(:warn).with(/dependency cycle/)
       end
     end
+
+    context "when the LLM call fails" do
+      let(:tasks_payload) { [] }
+      let(:llm_error) { Agentic::Errors::LlmAuthenticationError.new("Invalid API key") }
+      let(:response) { Agentic::LlmResponse.error(llm_error) }
+
+      it "raises PlanningFailedError carrying the LLM error instead of returning an empty plan" do
+        allow(Agentic.logger).to receive(:error)
+
+        expect { planner.plan }.to raise_error(Agentic::Errors::PlanningFailedError, /Goal analysis failed: Invalid API key/) { |e|
+          expect(e.llm_error).to be(llm_error)
+        }
+        expect(planner.tasks).to be_empty
+      end
+    end
   end
 end

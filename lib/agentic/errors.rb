@@ -129,6 +129,19 @@ module Agentic
       end
     end
 
+    # Raised when the planner cannot break a goal into tasks because the
+    # LLM call failed (bad key, network, refusal). An empty plan would
+    # otherwise look like success to the caller.
+    class PlanningFailedError < StandardError
+      # @return [StandardError, nil] The underlying LLM error, if any
+      attr_reader :llm_error
+
+      def initialize(message, llm_error: nil)
+        super(message)
+        @llm_error = llm_error
+      end
+    end
+
     # Base class for all LLM-related errors
     class LlmError < StandardError
       include Security::SecureErrorMixin

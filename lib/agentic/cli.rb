@@ -75,11 +75,16 @@ module Agentic
       config.model = options[:model] if options[:model]
 
       # Create and run the task planner with progress tracking
-      execution_plan = if options[:quiet]
-        planner = TaskPlanner.new(goal, config)
-        planner.plan
-      else
-        plan_with_progress_tracking(goal, config)
+      execution_plan = begin
+        if options[:quiet]
+          TaskPlanner.new(goal, config).plan
+        else
+          plan_with_progress_tracking(goal, config)
+        end
+      rescue Errors::PlanningFailedError => e
+        # The progress observer has already shown the error when not quiet
+        warn e.message if options[:quiet]
+        exit 1
       end
 
       # Show the plan to the user
