@@ -171,6 +171,11 @@ module Agentic
       begin
         @output = if has_output_schema?
           agent.execute_with_schema(build_prompt, output_schema)
+        elsif requires_artifacts? && has_workspace?
+          # Hand the task itself over so the agent takes its artifact path
+          # (ArtifactGenerator -> Workspace). Passing the prompt String here
+          # meant --workspace runs never wrote a file.
+          artifact_output(agent.execute(self))
         else
           agent.execute(build_prompt)
         end
@@ -316,6 +321,20 @@ module Agentic
     end
 
     private
+
+    # Turns the agent's artifact result into plain output. The journal writes
+    # outputs as JSON and downstream tasks read them as inputs, so a result
+    # object would degrade to its to_s. A failed generation fails the task.
+    # @param result [ArtifactGenerationResult, Object] What the agent returned
+    # @return [Hash, Object] The result as a hash (or untouched if not a result)
+    def artifact_output(result)
+      return result unless result.is_a?(ArtifactGenerationResult)
+      unless result.successful?
+        raise Errors::AgentError, "Artifact generation failed: #{result.errors.join("; ")}"
+      end
+
+      result.to_h
+    end
 
     # Builds the prompt to be sent to the agent
     # @return [String] The formatted prompt

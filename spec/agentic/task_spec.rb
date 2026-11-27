@@ -71,6 +71,44 @@ RSpec.describe Agentic::Task do
       end
     end
 
+    context "when the task has a workspace" do
+      let(:workspace) { Agentic::Workspace.new(Dir.mktmpdir) }
+      let(:task) { described_class.new(description: description, agent_spec: agent_spec, input: input, workspace: workspace) }
+
+      it "hands the task itself to the agent so it takes the artifact path" do
+        expect(agent).to receive(:execute).with(task).and_return(output)
+
+        expect(task.perform(agent).successful?).to be true
+      end
+
+      it "records a successful generation as a JSON-safe hash" do
+        artifact = Agentic::Artifact.new(name: "owl.txt", type: :text, content: "hoot")
+        result = Agentic::ArtifactGenerationResult.success(artifacts: [artifact], workspace: workspace)
+        allow(agent).to receive(:execute).with(task).and_return(result)
+
+        output = task.perform(agent).output
+        expect(output).to include(success: true, artifact_count: 1, workspace_path: workspace.path)
+        expect(JSON.parse(JSON.generate(output))["artifacts"].first["name"]).to eq("owl.txt")
+      end
+
+      it "fails the task when generation fails" do
+        result = Agentic::ArtifactGenerationResult.failure(errors: ["no files parsed"], workspace: workspace)
+        allow(agent).to receive(:execute).with(task).and_return(result)
+
+        task_result = task.perform(agent)
+        expect(task_result.successful?).to be false
+        expect(task.failure.message).to include("no files parsed")
+      end
+    end
+
+    context "without a workspace" do
+      it "hands the agent the prompt string" do
+        expect(agent).to receive(:execute).with(kind_of(String)).and_return(output)
+
+        task.perform(agent)
+      end
+    end
+
     context "when execution fails" do
       let(:error) { StandardError.new("Test error") }
 
