@@ -81,6 +81,18 @@ RSpec.describe Agentic::LlmClient, :vcr do
         expect(response).to be_successful
         expect(response.content).to eq("hi back")
       end
+
+      it "keeps the adapter's typed error instead of rewrapping it as a generic LlmError" do
+        chat = double("RubyLLM::Chat")
+        allow_any_instance_of(RubyLLM::Context).to receive(:chat).and_return(chat)
+        allow(chat).to receive(:with_temperature).and_return(chat)
+        allow(chat).to receive(:add_message)
+        allow(chat).to receive(:complete).and_raise(RubyLLM::UnauthorizedError.new("Invalid API key"))
+
+        expect {
+          described_class.new(config).complete(messages, fail_on_error: true, use_retries: false)
+        }.to raise_error(Agentic::Errors::LlmAuthenticationError)
+      end
     end
 
     context "with retry configuration" do

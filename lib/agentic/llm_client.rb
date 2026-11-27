@@ -167,8 +167,10 @@ module Agentic
       error = Errors::LlmParseError.new("Failed to parse JSON response: #{e.message}", parse_exception: e)
       Agentic.logger.error(error.safe_message)
       handle_error(error, fail_on_error)
-    rescue Errors::LlmRefusalError, Errors::LlmParseError => e
-      # Re-raise our custom errors that are already properly formatted
+    rescue Errors::LlmError => e
+      # Already typed (refusal/parse here, or auth/rate-limit/timeout from
+      # RubyLlmAdapter); rewrapping would hide the type from RetryHandler
+      Agentic.logger.error("LLM API error: #{e.safe_message}") unless e.is_a?(Errors::LlmRefusalError) || e.is_a?(Errors::LlmParseError)
       handle_error(e, fail_on_error)
     rescue => e
       error = Errors::LlmError.new("Unexpected error in LLM request: #{e.message}", context: {error_class: e.class.name})
