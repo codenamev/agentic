@@ -78,11 +78,16 @@ module Agentic
       config.model = options[:model] if options[:model]
 
       # Create and run the task planner with progress tracking
-      execution_plan = if options[:quiet]
-        planner = TaskPlanner.new(goal, config)
-        planner.plan
-      else
-        plan_with_progress_tracking(goal, config)
+      execution_plan = begin
+        if options[:quiet]
+          TaskPlanner.new(goal, config).plan
+        else
+          plan_with_progress_tracking(goal, config)
+        end
+      rescue Errors::PlanningFailedError => e
+        # The progress observer has already shown the error when not quiet
+        warn e.message if options[:quiet]
+        exit 1
       end
 
       # Show the plan to the user
@@ -119,9 +124,25 @@ module Agentic
 
       Use a workspace for file generation tasks:
         $ agentic execute --plan plan.json --workspace /tmp/project
+
+      Journal the run, and resume it after a crash or Ctrl+C without
+      re-running (or re-paying for) the tasks that already finished:
+        $ agentic execute --plan plan.json --journal run.jsonl
+        $ agentic execute --plan plan.json --journal run.jsonl --resume
+
+      When a run stops at :awaiting_human (a task needs a person, e.g. a
+      provider auth failure), list the questions and resume with answers:
+        $ agentic pending run.jsonl
+        $ agentic execute --plan plan.json --journal run.jsonl --resume --answer TASK_ID="rotated the key"
     LONGDESC
     option :plan, type: :string, aliases: "-p",
       desc: "Path to a plan file"
+    option :journal, type: :string, aliases: "-j",
+      desc: "Append a durable execution journal (JSONL) to this path"
+    option :resume, type: :boolean, default: false,
+      desc: "Skip tasks the --journal already records as completed, reusing their outputs"
+    option :answer, type: :array, banner: "TASK_ID=ANSWER",
+      desc: "Answer a task paused for a human (needs --resume; give several as ID1=A ID2=B; see 'agentic pending')"
     option :from_stdin, type: :boolean,
       desc: "Read plan from stdin"
     option :async, type: :boolean, default: true,
@@ -138,6 +159,10 @@ module Agentic
       apply_llm_backend!
       check_api_token!
 
+      # Validate resume flags before spending anything on the plan
+      resume_state = load_resume_state
+      answers = parse_answers(resume_state)
+
       # Load the plan
       plan_data = load_plan_data
 
@@ -149,7 +174,7 @@ module Agentic
       tasks = initialize_tasks(plan_data)
 
       # Execute the tasks
-      execute_tasks(tasks)
+      execute_tasks(tasks, resume_state: resume_state, answers: answers)
     end
 
     # Agent commands
@@ -626,6 +651,31 @@ module Agentic
     desc "capabilities", "Manage capability registry"
     subcommand "capabilities", Capabilities
 
+    desc "pending JOURNAL", "List tasks in a journaled run that are waiting for a human answer"
+    long_desc <<-LONGDESC
+      Reads an execution journal and lists the tasks paused for a person
+      (ADR-023), with the question each one asked. Answer them with:
+        $ agentic execute --plan plan.json --journal JOURNAL --resume --answer TASK_ID=ANSWER
+    LONGDESC
+    def pending(journal)
+      raise Thor::Error, "No journal at #{journal}" unless File.exist?(journal)
+
+      state = ExecutionJournal.replay(path: journal)
+      if state.awaiting_human.empty?
+        say "No tasks are waiting for a human in #{journal}"
+        return
+      end
+
+      say UI.colorize("#{state.awaiting_human.size} task(s) waiting for a human in #{journal}:", :yellow)
+      state.awaiting_human.each do |task_id, pause|
+        description = state.descriptions[task_id]
+        say "  #{task_id}#{" (#{description})" if description}"
+        say "    #{pause[:question]}" if pause[:question]
+      end
+      say ""
+      say "Resume with: agentic execute --plan PLAN --journal #{journal} --resume --answer TASK_ID=ANSWER"
+    end
+
     desc "portal", "Manage human intervention portal"
     subcommand "portal", HumanInterventionCommands
 
@@ -702,7 +752,73 @@ module Agentic
     # Shared execution logic for both execute command and immediate execution
     # @param graph [Array<Array(Task, Array<Task>, Hash{String => Task}, Symbol)>]
     #   The tasks to execute with their resolved edges (see #build_task_graph)
-    def execute_tasks(graph)
+    # Replays the --journal when --resume is given
+    # @return [ExecutionJournal::ReplayedState, nil] Prior state, or nil when not resuming
+    def load_resume_state
+      return nil unless options[:resume]
+
+      path = options[:journal]
+      raise Thor::Error, "--resume needs --journal PATH (the journal of the run to resume)" unless path
+      raise Thor::Error, "No journal at #{path} to resume from" unless File.exist?(path)
+
+      state = ExecutionJournal.replay(path: path)
+      if state.damaged? && !options[:quiet]
+        say UI.colorize("⚠ Journal #{path} has #{state.damage.size} damaged line(s); resuming from what survived", :yellow)
+      end
+      unless options[:quiet]
+        say UI.colorize("Resuming: #{state.completed_task_ids.size} task(s) already completed in #{path}", :blue)
+      end
+      state
+    end
+
+    # Parses --answer TASK_ID=ANSWER pairs and checks them against the
+    # replayed journal before anything runs, so a typo'd id fails fast
+    # @param state [ExecutionJournal::ReplayedState, nil] Replayed journal
+    # @return [Hash{String => String}, nil] Answers keyed by recorded task id
+    def parse_answers(state)
+      pairs = options[:answer]
+      return nil if pairs.nil? || pairs.empty?
+      raise Thor::Error, "--answer needs --resume --journal PATH (answers go to a paused run)" unless state
+
+      pairs.each_with_object({}) do |pair, answers|
+        task_id, answer = pair.split("=", 2)
+        if task_id.to_s.empty? || answer.nil? || answer.strip.empty?
+          raise Thor::Error, "--answer must look like TASK_ID=ANSWER, got #{pair.inspect}"
+        end
+        raise Thor::Error, "--answer given twice for #{task_id}" if answers.key?(task_id)
+        if state.answered?(task_id)
+          raise Thor::Error, "Task #{task_id} was already answered; a second answer needs a fresh pause"
+        end
+        unless state.awaiting_human?(task_id)
+          raise Thor::Error, "No task awaiting a human with id #{task_id} (see 'agentic pending #{state.path}')"
+        end
+
+        answers[task_id] = answer
+      end
+    end
+
+    # Tells the user how to answer when the run paused for a human
+    # @param result [PlanExecutionResult] The finished run
+    # @return [void]
+    def announce_awaiting_human(result)
+      return unless result.respond_to?(:status) && result.status == :awaiting_human
+      return if options[:quiet]
+
+      hint = options[:journal] ? "agentic pending #{options[:journal]}" : "re-run with --journal to answer"
+      say UI.colorize("⏸ Paused: a task needs a human before it can re-run (#{hint})", :yellow)
+    end
+
+    # Combines the observer's hooks with journal writing when --journal is set
+    # @param observer_hooks [Hash] The execution observer's lifecycle hooks
+    # @return [Hash] Hooks for the orchestrator
+    def orchestrator_hooks(observer_hooks)
+      return observer_hooks unless options[:journal]
+
+      journal = ExecutionJournal.new(path: options[:journal])
+      observer_hooks.merge(journal.lifecycle_hooks(observer_hooks))
+    end
+
+    def execute_tasks(graph, resume_state: nil, answers: nil)
       say UI.colorize("Executing plan...", :green) unless options[:quiet]
 
       # Setup observability adapters for CLI execution
@@ -717,7 +833,7 @@ module Agentic
       # Setup the PlanOrchestrator with the observer's lifecycle hooks
       orchestrator = PlanOrchestrator.new(
         concurrency_limit: options[:max_concurrency] || 10,
-        lifecycle_hooks: observer.lifecycle_hooks
+        lifecycle_hooks: orchestrator_hooks(observer.lifecycle_hooks)
       )
 
       # Add tasks to the orchestrator with their declared edges, so
@@ -743,7 +859,8 @@ module Agentic
 
       # Execute the plan
       begin
-        result = orchestrator.execute_plan(DefaultAgentProvider.new(llm_config))
+        result = orchestrator.execute_plan(DefaultAgentProvider.new(llm_config), resume_from: resume_state, answers: answers)
+        announce_awaiting_human(result)
 
         # Always save result to file
         save_result_to_file(result, options, observer)

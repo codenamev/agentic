@@ -29,6 +29,22 @@ module Agentic
       end
     end
 
+    # Raised when a resume finds another process already holding the
+    # journal's claim (<journal>.lock). Two resumers of one journal would
+    # both run every pending task and both append to the same file; the
+    # second fails fast instead. The OS drops the lock when its holder
+    # exits, crashed or not, so there is no stale claim to sweep.
+    class JournalBusyError < StandardError
+      # @return [String] The journal path that is already claimed
+      attr_reader :path
+
+      # @param path [String] The claimed journal
+      def initialize(path)
+        @path = path
+        super("journal #{path} is already being resumed by another process (#{path}.lock is held)")
+      end
+    end
+
     # Raised when a capability's inputs or outputs violate its declared
     # specification. Collects every violation instead of failing on the
     # first, so callers can fix a bad payload in one round trip.
@@ -110,6 +126,19 @@ module Agentic
       def initialize(message = nil)
         super(message || "Agent not configured with LLM capabilities. " \
           "Use DefaultAgentProvider or configure llm_client directly.")
+      end
+    end
+
+    # Raised when the planner cannot break a goal into tasks because the
+    # LLM call failed (bad key, network, refusal). An empty plan would
+    # otherwise look like success to the caller.
+    class PlanningFailedError < StandardError
+      # @return [StandardError, nil] The underlying LLM error, if any
+      attr_reader :llm_error
+
+      def initialize(message, llm_error: nil)
+        super(message)
+        @llm_error = llm_error
       end
     end
 
