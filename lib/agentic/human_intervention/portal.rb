@@ -16,6 +16,11 @@ module Agentic
     # - Context-aware intervention requests
     # - Audit logging and compliance tracking
     #
+    # @deprecated Will be removed in the next minor release. Requests live in
+    #   an in-memory hash, so none survive the process that made them. Pause
+    #   with a journaled run and answer with `agentic pending` and
+    #   `agentic execute --resume --answer`. See ADR-023 and codenamev/agentic#101.
+    #
     # Design Goals:
     # 1. Seamless integration with agent workflows
     # 2. Flexible approval processes with role-based access
@@ -294,7 +299,33 @@ module Agentic
 
       attr_reader :config, :requests, :responses, :statistics, :workflow_manager, :monitoring_system, :authenticator
 
+      DEPRECATION_MESSAGE = "Agentic::HumanIntervention::Portal is deprecated and will be removed in the " \
+        "next minor release. Its requests are kept in memory and die with the process. Pause a journaled " \
+        "run instead and answer it with `agentic pending` and `agentic execute --resume --answer`. " \
+        "See https://github.com/codenamev/agentic/issues/101"
+
+      @deprecation_warned = false
+
+      class << self
+        # Emits the deprecation warning the first time it is called in this
+        # process; later calls are no-ops.
+        # @return [Boolean] true when the warning was emitted by this call
+        def warn_deprecated_once
+          return false if @deprecation_warned
+
+          @deprecation_warned = true
+          warn(DEPRECATION_MESSAGE, category: :deprecated, uplevel: 2)
+          true
+        end
+
+        # @api private Test hook.
+        def reset_deprecation_warning!
+          @deprecation_warned = false
+        end
+      end
+
       def initialize(config = {})
+        self.class.warn_deprecated_once
         @config = DEFAULT_CONFIG.merge(config)
         @requests = {}
         @responses = {}

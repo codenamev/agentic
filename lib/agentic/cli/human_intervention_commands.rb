@@ -27,8 +27,33 @@ module Agentic
       class_option :verbose, type: :boolean, aliases: "-v",
         desc: "Enable verbose output with detailed information"
 
+      CLI_DEPRECATION_MESSAGE = "warning: `agentic portal` is deprecated and will be removed in the next " \
+        "minor release. Its requests never outlive one command. Use `agentic pending` to list paused runs and " \
+        "`agentic execute --resume --answer` to answer them. See https://github.com/codenamev/agentic/issues/101"
+
+      @deprecation_warned = false
+
+      class << self
+        # Prints the CLI deprecation notice to stderr once per process.
+        # Unlike the library warning it is not gated on Warning[:deprecated]:
+        # someone typing the command should see it.
+        def warn_deprecated_once(io = $stderr)
+          return false if @deprecation_warned
+
+          @deprecation_warned = true
+          io.puts(CLI_DEPRECATION_MESSAGE)
+          true
+        end
+
+        # @api private Test hook.
+        def reset_deprecation_warning!
+          @deprecation_warned = false
+        end
+      end
+
       def initialize(*args)
         super
+        self.class.warn_deprecated_once
         @portal = ensure_portal_initialized
       end
 
