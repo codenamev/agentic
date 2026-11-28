@@ -13,6 +13,8 @@ module Agentic
     class_option :no_color, type: :boolean, desc: "Disable colored output"
     class_option :no_file_logging, type: :boolean, desc: "Disable file logging"
     class_option :log_path, type: :string, desc: "Custom path for observability logs"
+    class_option :backend, type: :string,
+      desc: "LLM transport: openai or ruby_llm (overrides AGENTIC_LLM_BACKEND and llm_backend in .agentic.yml)"
 
     def self.exit_on_failure?
       true
@@ -66,6 +68,7 @@ module Agentic
     option :workspace, type: :string, aliases: "-w",
       desc: "Workspace path for file generation tasks"
     def plan(goal)
+      apply_llm_backend!
       check_api_token!
 
       say UI.colorize("Creating plan for goal: #{goal}", :green) unless options[:quiet]
@@ -153,6 +156,7 @@ module Agentic
     option :workspace, type: :string, aliases: "-w",
       desc: "Workspace path for file generation tasks"
     def execute
+      apply_llm_backend!
       check_api_token!
 
       # Validate resume flags before spending anything on the plan
@@ -941,10 +945,12 @@ module Agentic
                 description: {type: "string"},
                 instructions: {type: "string"}
               },
-              required: %w[name description instructions]
+              required: %w[name description instructions],
+              additionalProperties: false
             }
           },
-          required: %w[description agent]
+          required: %w[description agent],
+          additionalProperties: false
         }
         s.object :expected_answer do |o|
           o.string :format
@@ -1010,6 +1016,32 @@ module Agentic
       else
         Agentic.logger.level = :info
       end
+    end
+
+    # Selects the LLM transport. Precedence: --backend, then the
+    # AGENTIC_LLM_BACKEND env var (already read by the configuration),
+    # then llm_backend in .agentic.yml (project over user), then :ruby_llm.
+    #
+    # @raise [Thor::Error] for an unknown backend name
+    def apply_llm_backend!
+      value = options[:backend]
+      value ||= llm_backend_from_config_file unless ENV["AGENTIC_LLM_BACKEND"]
+      return unless value
+
+      Agentic.configuration.llm_backend = value
+    rescue Errors::ConfigurationError => e
+      raise Thor::Error, e.message
+    end
+
+    # @return [String, nil] llm_backend from the merged user + project config
+    def llm_backend_from_config_file
+      [ConfigCommands::PROJECT_CONFIG_PATH, ConfigCommands::USER_CONFIG_PATH].each do |path|
+        next unless File.exist?(path)
+
+        config = YAML.load_file(path)
+        return config["llm_backend"].to_s if config.is_a?(Hash) && config["llm_backend"]
+      end
+      nil
     end
 
     # Checks for API token and raises error if not configured

@@ -10,6 +10,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
   before do
     allow(Agentic.configuration).to receive(:access_token).and_return(access_token)
+    allow(Agentic.configuration).to receive(:llm_backend).and_return(:openai) # deprecated alias, still resolves to RubyLlmAdapter
     allow(Agentic.configuration).to receive(:api_base_url).and_return(nil)
     allow(config).to receive(:to_api_parameters).and_return(api_parameters)
     allow(Agentic.logger).to receive(:error)
@@ -19,25 +20,75 @@ RSpec.describe Agentic::LlmClient, :vcr do
   end
 
   describe ".new" do
-    it "initializes with OpenAI client" do
-      expect(OpenAI::Client).to receive(:new).with(access_token: access_token)
-
+    it "routes the deprecated :openai backend through RubyLlmAdapter" do
       client = described_class.new(config)
-      expect(client).to be_a(described_class)
+
+      expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+      expect(client.client.instance_variable_get(:@context).config.openai_api_key).to eq(access_token)
     end
 
-    context "with custom API base URL" do
+    context "with custom API base URL on the :openai backend" do
       before do
         allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434")
       end
 
-      it "configures client with custom base URL" do
-        expect(OpenAI::Client).to receive(:new).with(
-          access_token: access_token,
-          uri_base: "http://localhost:11434"
-        )
+      it "points the RubyLLM context at the base URL" do
+        adapter = described_class.new(config).client
 
-        described_class.new(config)
+        expect(adapter.instance_variable_get(:@context).config.openai_api_base).to eq("http://localhost:11434")
+        expect(adapter.instance_variable_get(:@assume_model_exists)).to be(true)
+      end
+    end
+
+    context "with llm_backend :ruby_llm" do
+      before do
+        require "ruby_llm"
+        allow(Agentic.configuration).to receive(:llm_backend).and_return(:ruby_llm)
+      end
+
+      it "uses a RubyLlmAdapter on a private context instead of ruby-openai" do
+        client = described_class.new(config)
+
+        expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+        context = client.client.instance_variable_get(:@context)
+        expect(context.config.openai_api_key).to eq(access_token)
+        expect(RubyLLM.config.openai_api_key).not_to eq(access_token)
+        expect(client.client.instance_variable_get(:@assume_model_exists)).to be(false)
+      end
+
+      it "points the context at a custom base URL and skips the model registry" do
+        allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434/v1")
+
+        adapter = described_class.new(config).client
+
+        expect(adapter.instance_variable_get(:@context).config.openai_api_base).to eq("http://localhost:11434/v1")
+        expect(adapter.instance_variable_get(:@assume_model_exists)).to be(true)
+      end
+
+      it "sends complete() through RubyLLM and keeps the LlmResponse contract" do
+        chat = double("RubyLLM::Chat")
+        allow_any_instance_of(RubyLLM::Context).to receive(:chat).and_return(chat)
+        allow(chat).to receive(:with_temperature).and_return(chat)
+        allow(chat).to receive(:add_message)
+        message = double("RubyLLM::Message", content: "hi back", tokens: nil, model: "gpt-4", finish_reason: :stop)
+        allow(chat).to receive(:complete).and_return(message)
+
+        response = described_class.new(config).complete(messages)
+
+        expect(response).to be_successful
+        expect(response.content).to eq("hi back")
+      end
+
+      it "keeps the adapter's typed error instead of rewrapping it as a generic LlmError" do
+        chat = double("RubyLLM::Chat")
+        allow_any_instance_of(RubyLLM::Context).to receive(:chat).and_return(chat)
+        allow(chat).to receive(:with_temperature).and_return(chat)
+        allow(chat).to receive(:add_message)
+        allow(chat).to receive(:complete).and_raise(RubyLLM::UnauthorizedError.new("Invalid API key"))
+
+        expect {
+          described_class.new(config).complete(messages, fail_on_error: true, use_retries: false)
+        }.to raise_error(Agentic::Errors::LlmAuthenticationError)
       end
     end
 
@@ -67,7 +118,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
   end
 
   describe "#complete" do
-    let(:openai_client) { instance_double(OpenAI::Client) }
+    let(:openai_client) { instance_double(Agentic::RubyLlmAdapter) }
     let(:success_response) do
       {
         "choices" => [
@@ -83,7 +134,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
     subject { described_class.new(config) }
 
     before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
+      allow(Agentic::RubyLlmAdapter).to receive(:from_configuration).and_return(openai_client)
       allow(openai_client).to receive(:chat).and_return(success_response)
     end
 
@@ -96,7 +147,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
         expect(result.content).to eq("Test response")
       end
 
-      it "calls OpenAI client with correct parameters" do
+      it "calls the chat client with correct parameters" do
         expect(openai_client).to receive(:chat).with(parameters: api_parameters)
 
         subject.complete(messages)
@@ -253,10 +304,10 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
-    context "with OpenAI errors" do
-      let(:timeout_error) { OpenAI::Timeout.new("Request timeout") }
-      let(:rate_limit_error) { OpenAI::RateLimitError.new("Rate limit exceeded") }
-      let(:auth_error) { OpenAI::AuthenticationError.new("Invalid API key") }
+    context "with HTTP errors" do
+      let(:timeout_error) { Faraday::TimeoutError.new("Request timeout") }
+      let(:rate_limit_error) { Faraday::TooManyRequestsError.new("Rate limit exceeded", {status: 429, headers: {}}) }
+      let(:auth_error) { Faraday::UnauthorizedError.new("Invalid API key", {status: 401, headers: {}}) }
 
       context "when timeout error occurs" do
         before do
@@ -279,7 +330,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
         end
       end
 
-      context "when the HTTP layer raises Faraday::TooManyRequestsError (ruby-openai 8.x)" do
+      context "when the HTTP layer raises Faraday::TooManyRequestsError" do
         let(:faraday_429) do
           Faraday::TooManyRequestsError.new(nil, {status: 429, headers: {"retry-after" => "1"}, body: "rate limited"})
         end
@@ -337,7 +388,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
     end
 
     context "when the provider error carries a secret" do
-      let(:leaky_error) { OpenAI::AuthenticationError.new("Incorrect API key provided: sk-abcdefghijklmnop1234") }
+      let(:leaky_error) { Faraday::UnauthorizedError.new("Incorrect API key provided: sk-abcdefghijklmnop1234", {status: 401, headers: {}}) }
 
       before do
         Agentic::Security::Config.configure(enable_pii_detection: true)
@@ -362,7 +413,7 @@ RSpec.describe Agentic::LlmClient, :vcr do
 
     context "when the provider error body has invalid bytes" do
       let(:garbled) { (+"Incorrect API key provided: sk-abcdefghijklmnop1234 \xFF\xFE").force_encoding("UTF-8") }
-      let(:leaky_error) { OpenAI::AuthenticationError.new(garbled) }
+      let(:leaky_error) { Faraday::UnauthorizedError.new(garbled, {status: 401, headers: {}}) }
 
       before do
         Agentic::Security::Config.configure(enable_pii_detection: true)
@@ -456,85 +507,96 @@ RSpec.describe Agentic::LlmClient, :vcr do
     end
   end
 
-  describe "#models" do
-    let(:openai_client) { instance_double(OpenAI::Client) }
-    let(:models_response) { {"data" => [{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}]} }
-    let(:models_client) { double("OpenAI::Models") }
+  describe "provider metadata endpoints (plain HTTP, any backend)", vcr: false do
+    include WebMock::API
 
     subject { described_class.new(config) }
 
-    before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
-      allow(openai_client).to receive(:models).and_return(models_client)
-      allow(models_client).to receive(:list).and_return(models_response)
-    end
+    after { WebMock.reset! }
 
-    it "returns available models" do
-      result = subject.models
+    [:openai, :ruby_llm].each do |backend|
+      context "with llm_backend #{backend.inspect}" do
+        before { allow(Agentic.configuration).to receive(:llm_backend).and_return(backend) }
 
-      expect(result).to eq([{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}])
-    end
+        describe "#models" do
+          it "GETs /v1/models with the bearer token and returns data" do
+            stub_request(:get, "https://api.openai.com/v1/models")
+              .with(headers: {"Authorization" => "Bearer test-token"})
+              .to_return(status: 200, body: {data: [{id: "gpt-4"}, {id: "gpt-3.5-turbo"}]}.to_json)
 
-    context "when API error occurs" do
-      let(:api_error) { OpenAI::APIError.new("Server error") }
+            expect(subject.models).to eq([{"id" => "gpt-4"}, {"id" => "gpt-3.5-turbo"}])
+          end
 
-      before do
-        allow(models_client).to receive(:list).and_raise(api_error)
-      end
+          it "returns nil on a 500" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 500, body: "{}")
 
-      it "returns nil on error" do
-        result = subject.models
+            expect(subject.models).to be_nil
+          end
 
-        expect(result).to be_nil
-      end
+          it "raises a typed server error on a 500 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 500, body: "{}")
 
-      context "with fail_on_error true" do
-        it "raises mapped error" do
-          expect do
-            subject.models(fail_on_error: true)
-          end.to raise_error(Agentic::Errors::LlmServerError)
+            expect { subject.models(fail_on_error: true) }.to raise_error(Agentic::Errors::LlmServerError)
+          end
+
+          it "raises a typed auth error on a 401 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/models").to_return(status: 401, body: "{}")
+
+            expect { subject.models(fail_on_error: true) }.to raise_error(Agentic::Errors::LlmAuthenticationError)
+          end
+        end
+
+        describe "#query_generation_stats" do
+          let(:stats) { {"data" => {"id" => "gen_123", "total_cost" => 0.001}} }
+
+          it "GETs /generation?id= and returns the parsed body" do
+            stub_request(:get, "https://api.openai.com/v1/generation")
+              .with(query: {id: "gen_123"})
+              .to_return(status: 200, body: stats.to_json)
+
+            expect(subject.query_generation_stats("gen_123")).to eq(stats)
+          end
+
+          it "returns nil on a 404" do
+            stub_request(:get, "https://api.openai.com/v1/generation").with(query: {id: "nope"}).to_return(status: 404, body: "{}")
+
+            expect(subject.query_generation_stats("nope")).to be_nil
+          end
+
+          it "raises a typed invalid-request error on a 404 with fail_on_error" do
+            stub_request(:get, "https://api.openai.com/v1/generation").with(query: {id: "nope"}).to_return(status: 404, body: "{}")
+
+            expect { subject.query_generation_stats("nope", fail_on_error: true) }
+              .to raise_error(Agentic::Errors::LlmInvalidRequestError)
+          end
         end
       end
     end
-  end
 
-  describe "#query_generation_stats" do
-    let(:openai_client) { double("OpenAI::Client") }
-    let(:generation_id) { "gen_123" }
-    let(:stats_response) { {"usage" => {"total_tokens" => 100}} }
+    describe "base URL handling" do
+      before { allow(Agentic.configuration).to receive(:llm_backend).and_return(:ruby_llm) }
 
-    subject { described_class.new(config) }
+      {
+        "https://openrouter.ai/api/v1" => "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/" => "https://openrouter.ai/api/v1/models",
+        "http://localhost:11434" => "http://localhost:11434/v1/models"
+      }.each do |base, expected|
+        it "resolves #{base} to #{expected}" do
+          allow(Agentic.configuration).to receive(:api_base_url).and_return(base)
+          stub_request(:get, expected).to_return(status: 200, body: {data: []}.to_json)
 
-    before do
-      allow(OpenAI::Client).to receive(:new).and_return(openai_client)
-      allow(openai_client).to receive(:query_generation_stats).and_return(stats_response)
-    end
-
-    it "returns generation stats" do
-      result = subject.query_generation_stats(generation_id)
-
-      expect(result).to eq(stats_response)
-    end
-
-    context "when API error occurs" do
-      let(:api_error) { OpenAI::InvalidRequestError.new("Invalid generation ID") }
-
-      before do
-        allow(openai_client).to receive(:query_generation_stats).and_raise(api_error)
-      end
-
-      it "returns nil on error" do
-        result = subject.query_generation_stats(generation_id)
-
-        expect(result).to be_nil
-      end
-
-      context "with fail_on_error true" do
-        it "raises mapped error" do
-          expect do
-            subject.query_generation_stats(generation_id, fail_on_error: true)
-          end.to raise_error(Agentic::Errors::LlmInvalidRequestError)
+          expect(subject.models).to eq([])
         end
+      end
+
+      it "sends no Authorization header when there is no token" do
+        allow(Agentic.configuration).to receive(:api_base_url).and_return("http://localhost:11434/v1")
+        allow(Agentic.configuration).to receive(:access_token).and_return(nil)
+        stub_request(:get, "http://localhost:11434/v1/models")
+          .with { |req| !req.headers.key?("Authorization") }
+          .to_return(status: 200, body: {data: []}.to_json)
+
+        expect(subject.models).to eq([])
       end
     end
   end
@@ -562,105 +624,51 @@ RSpec.describe Agentic::LlmClient, :vcr do
       end
     end
 
-    describe "#map_openai_error" do
-      context "with Faraday errors re-raised by ruby-openai 8.x" do
+    describe "#map_http_error" do
+      context "with Faraday errors" do
         def faraday_error(klass, status, headers: {}, body: nil)
           klass.new(nil, {status: status, headers: headers, body: body})
         end
 
         it "maps 429 to LlmRateLimitError with retry-after" do
           error = faraday_error(Faraday::TooManyRequestsError, 429, headers: {"retry-after" => "7"}, body: "slow down")
-          mapped = subject.send(:map_openai_error, error)
+          mapped = subject.send(:map_http_error, error)
           expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
           expect(mapped.retry_after).to eq(7)
         end
 
         it "maps 401 and 403 to LlmAuthenticationError" do
-          expect(subject.send(:map_openai_error, faraday_error(Faraday::UnauthorizedError, 401)))
+          expect(subject.send(:map_http_error, faraday_error(Faraday::UnauthorizedError, 401)))
             .to be_a(Agentic::Errors::LlmAuthenticationError)
-          expect(subject.send(:map_openai_error, faraday_error(Faraday::ForbiddenError, 403)))
+          expect(subject.send(:map_http_error, faraday_error(Faraday::ForbiddenError, 403)))
             .to be_a(Agentic::Errors::LlmAuthenticationError)
         end
 
         it "maps 400, 404 and 422 to LlmInvalidRequestError" do
           [[Faraday::BadRequestError, 400], [Faraday::ResourceNotFound, 404], [Faraday::UnprocessableEntityError, 422]].each do |klass, status|
-            expect(subject.send(:map_openai_error, faraday_error(klass, status)))
+            expect(subject.send(:map_http_error, faraday_error(klass, status)))
               .to be_a(Agentic::Errors::LlmInvalidRequestError)
           end
         end
 
         it "maps 5xx to LlmServerError" do
-          mapped = subject.send(:map_openai_error, faraday_error(Faraday::ServerError, 503, body: "upstream down"))
+          mapped = subject.send(:map_http_error, faraday_error(Faraday::ServerError, 503, body: "upstream down"))
           expect(mapped).to be_a(Agentic::Errors::LlmServerError)
         end
 
         it "maps a Faraday::Error with no HTTP status to LlmNetworkError" do
-          mapped = subject.send(:map_openai_error, Faraday::Error.new("socket reset"))
+          mapped = subject.send(:map_http_error, Faraday::Error.new("socket reset"))
           expect(mapped).to be_a(Agentic::Errors::LlmNetworkError)
         end
 
         it "still maps Faraday::TimeoutError to LlmTimeoutError" do
-          mapped = subject.send(:map_openai_error, Faraday::TimeoutError.new("execution expired"))
-          expect(mapped).to be_a(Agentic::Errors::LlmTimeoutError)
-        end
-      end
-      context "with different OpenAI error types" do
-        let(:timeout_error) { OpenAI::Timeout.new("Request timeout") }
-        let(:rate_limit_error) { OpenAI::RateLimitError.new("Rate limit") }
-        let(:auth_error) { OpenAI::AuthenticationError.new("Auth failed") }
-        let(:connection_error) { OpenAI::APIConnectionError.new("Connection failed") }
-        let(:invalid_request_error) { OpenAI::InvalidRequestError.new("Invalid request") }
-        let(:api_error) { OpenAI::APIError.new("Server error") }
-        let(:generic_error) { OpenAI::Error.new("Generic error") }
-
-        it "maps timeout error correctly" do
-          mapped = subject.send(:map_openai_error, timeout_error)
+          mapped = subject.send(:map_http_error, Faraday::TimeoutError.new("execution expired"))
           expect(mapped).to be_a(Agentic::Errors::LlmTimeoutError)
         end
 
-        it "maps rate limit error correctly" do
-          mapped = subject.send(:map_openai_error, rate_limit_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
-        end
-
-        it "maps authentication error correctly" do
-          mapped = subject.send(:map_openai_error, auth_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmAuthenticationError)
-        end
-
-        it "maps connection error correctly" do
-          mapped = subject.send(:map_openai_error, connection_error)
+        it "maps Faraday::ConnectionFailed to LlmNetworkError" do
+          mapped = subject.send(:map_http_error, Faraday::ConnectionFailed.new("connection refused"))
           expect(mapped).to be_a(Agentic::Errors::LlmNetworkError)
-        end
-
-        it "maps invalid request error correctly" do
-          mapped = subject.send(:map_openai_error, invalid_request_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmInvalidRequestError)
-        end
-
-        it "maps API error correctly" do
-          mapped = subject.send(:map_openai_error, api_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmServerError)
-        end
-
-        it "maps generic error correctly" do
-          mapped = subject.send(:map_openai_error, generic_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmError)
-        end
-      end
-
-      context "with response metadata" do
-        let(:response_double) { double("Response", headers: {"retry-after" => "60"}, to_h: {"error" => "details"}) }
-        let(:rate_limit_error) do
-          error = OpenAI::RateLimitError.new("Rate limit")
-          allow(error).to receive(:response).and_return(response_double)
-          error
-        end
-
-        it "includes retry-after header in rate limit error" do
-          mapped = subject.send(:map_openai_error, rate_limit_error)
-          expect(mapped).to be_a(Agentic::Errors::LlmRateLimitError)
-          expect(mapped.retry_after).to eq(60)
         end
       end
     end

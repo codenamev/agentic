@@ -34,7 +34,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "dry-schema", "~> 1.13"
-  spec.add_dependency "ruby-openai", ">= 7.1", "< 9"
+  spec.add_dependency "ruby_llm", "~> 2.2" # provider-agnostic LLM layer
+  spec.add_dependency "faraday", ">= 1.10", "< 3" # LlmClient#models/#query_generation_stats GET the provider directly; already here via ruby_llm
   spec.add_dependency "zeitwerk", "~> 2.6"
   spec.add_dependency "async", "~> 2.0"
   spec.add_dependency "thor", "~> 1.2"

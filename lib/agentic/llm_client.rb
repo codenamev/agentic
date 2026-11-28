@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
-require "openai"
 require "net/http"
+require "json"
+require "faraday"
 
 module Agentic
   # Generic wrapper for LLM API clients
   class LlmClient
-    # @return [OpenAI::Client] The underlying LLM client instance
+    # @return [RubyLlmAdapter] The underlying LLM transport
     attr_reader :client, :last_response
 
     # @return [RetryHandler] The retry handler for transient errors
@@ -22,16 +23,7 @@ module Agentic
       configuration.validate!
       @limiter = limiter
 
-      # Local endpoints (Ollama, etc.) ignore the token but the client
-      # requires one, so send an explicit placeholder rather than nil
-      client_options = {access_token: configuration.access_token || "local"}
-
-      # Add custom base URL if configured (for Ollama, etc.)
-      if configuration.api_base_url
-        client_options[:uri_base] = configuration.api_base_url
-      end
-
-      @client = OpenAI::Client.new(**client_options)
+      @client = build_client(configuration)
       @config = config
       @last_response = nil
 
@@ -161,12 +153,9 @@ module Agentic
         content = @last_response.dig("choices", 0, "message", "content")
         LlmResponse.success(@last_response, content)
       end
-    rescue OpenAI::Error, Faraday::Error => e
-      # ruby-openai 8.x re-raises Faraday::Error for HTTP failures (429/401/5xx/timeouts)
-      # rather than wrapping them in OpenAI::Error, so both must be mapped here or
-      # they fall through to the generic LlmError and RetryHandler never retries.
-      error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error: #{error.safe_message}")
+    rescue Faraday::Error => e
+      error = map_http_error(e)
+      Agentic.logger.error("LLM API error: #{error.safe_message}")
       handle_error(error, fail_on_error)
     rescue Net::ReadTimeout, Net::OpenTimeout => e
       error = Errors::LlmTimeoutError.new("Request to LLM timed out: #{e.message}", context: {timeout_type: e.class.name})
@@ -176,8 +165,10 @@ module Agentic
       error = Errors::LlmParseError.new("Failed to parse JSON response: #{e.message}", parse_exception: e)
       Agentic.logger.error(error.safe_message)
       handle_error(error, fail_on_error)
-    rescue Errors::LlmRefusalError, Errors::LlmParseError => e
-      # Re-raise our custom errors that are already properly formatted
+    rescue Errors::LlmError => e
+      # Already typed (refusal/parse here, or auth/rate-limit/timeout from
+      # RubyLlmAdapter); rewrapping would hide the type from RetryHandler
+      Agentic.logger.error("LLM API error: #{e.safe_message}") unless e.is_a?(Errors::LlmRefusalError) || e.is_a?(Errors::LlmParseError)
       handle_error(e, fail_on_error)
     rescue => e
       error = Errors::LlmError.new("Unexpected error in LLM request: #{e.message}", context: {error_class: e.class.name})
@@ -185,15 +176,16 @@ module Agentic
       handle_error(error, fail_on_error)
     end
 
-    # Fetches available models from the LLM provider
+    # Fetches available models from the LLM provider (GET {base}/models).
+    # Plain HTTP, so it works the same whichever llm_backend builds `client`.
     # @param fail_on_error [Boolean] Whether to raise errors or return nil on error
     # @return [Array<Hash>, nil] The list of available models, or nil if an error occurred and fail_on_error is false
     # @raise [Agentic::Errors::LlmError] If an error occurred and fail_on_error is true
     def models(fail_on_error: false)
-      client.models.list&.dig("data")
-    rescue OpenAI::Error => e
-      error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error when listing models: #{error.safe_message}")
+      provider_get("models")&.dig("data")
+    rescue Faraday::Error => e
+      error = map_http_error(e)
+      Agentic.logger.error("LLM API error when listing models: #{error.safe_message}")
       handle_error(error, fail_on_error)
       nil
     rescue => e
@@ -204,15 +196,16 @@ module Agentic
     end
 
     # Queries generation stats for a given generation ID
+    # (GET {base}/generation?id=..., an OpenRouter endpoint)
     # @param generation_id [String] The ID of the generation
     # @param fail_on_error [Boolean] Whether to raise errors or return nil on error
     # @return [Hash, nil] The generation stats, or nil if an error occurred and fail_on_error is false
     # @raise [Agentic::Errors::LlmError] If an error occurred and fail_on_error is true
     def query_generation_stats(generation_id, fail_on_error: false)
-      client.query_generation_stats(generation_id)
-    rescue OpenAI::Error => e
-      error = map_openai_error(e)
-      Agentic.logger.error("OpenAI API error when querying generation stats: #{error.safe_message}")
+      provider_get("generation", id: generation_id)
+    rescue Faraday::Error => e
+      error = map_http_error(e)
+      Agentic.logger.error("LLM API error when querying generation stats: #{error.safe_message}")
       handle_error(error, fail_on_error)
       nil
     rescue => e
@@ -223,6 +216,35 @@ module Agentic
     end
 
     private
+
+    DEFAULT_API_BASE = "https://api.openai.com/v1"
+
+    # GETs an OpenAI-compatible JSON endpoint relative to the configured base
+    # URL. Non-2xx responses raise Faraday errors that map_http_error types.
+    # @param path [String] path under the API base, e.g. "models"
+    # @param params [Hash] query parameters
+    # @return [Hash] the parsed JSON body
+    def provider_get(path, **params)
+      configuration = Agentic.configuration
+      base = (configuration.api_base_url || DEFAULT_API_BASE).to_s
+      base = File.join(base, "v1") unless base.match?(%r{/v\d+(/|\z)})
+      headers = {"Accept" => "application/json"}
+      headers["Authorization"] = "Bearer #{configuration.access_token}" if configuration.access_token
+      connection = Faraday.new(url: base.end_with?("/") ? base : "#{base}/", headers: headers) do |f|
+        f.response :raise_error
+      end
+      response = connection.get(path, params)
+      JSON.parse(response.body)
+    end
+
+    # Builds the transport behind `chat(parameters:)`. Every llm_backend
+    # now resolves to RubyLlmAdapter; `:openai` is a deprecated alias kept
+    # so existing configs keep working (see LegacyConfiguration#llm_backend=).
+    # @param configuration [LegacyConfiguration]
+    # @return [RubyLlmAdapter]
+    def build_client(configuration)
+      RubyLlmAdapter.from_configuration(configuration)
+    end
 
     # Extracts content from messages for logging purposes with security sanitization
     # @param messages [Array<Hash>] The messages
@@ -247,110 +269,38 @@ module Agentic
       end
     end
 
-    # Maps OpenAI error types to our custom error classes
-    # @param error [OpenAI::Error] The original error from the OpenAI gem
+    # Maps Faraday HTTP errors (from the plain-HTTP model/stats endpoints, or
+    # any Faraday error a transport lets through) to typed LlmErrors so
+    # RetryHandler can tell retryable failures from fatal ones.
+    # @param error [Faraday::Error] The original error
     # @return [Agentic::Errors::LlmError] A mapped error
-    def map_openai_error(error)
-      # ruby-openai 8.x simplified error classes to just Error, ConfigurationError, and AuthenticationError
-      # We check for specific error classes first (including test shims), then parse message
-
+    def map_http_error(error)
       case error
-      when defined?(OpenAI::RateLimitError) && OpenAI::RateLimitError
-        retry_after = error.respond_to?(:response) ? error.response&.headers&.[]("retry-after")&.to_i : nil
-        Errors::LlmRateLimitError.new(
-          "OpenAI API rate limit exceeded: #{error.message}",
-          retry_after: retry_after,
-          response: error.respond_to?(:response) ? error.response&.to_h : nil
-        )
-      when defined?(OpenAI::AuthenticationError) && OpenAI::AuthenticationError
-        Errors::LlmAuthenticationError.new(
-          "OpenAI API authentication error: #{error.message}",
-          response: error.respond_to?(:response) ? error.response&.to_h : nil
-        )
-      when defined?(OpenAI::APIConnectionError) && OpenAI::APIConnectionError
-        Errors::LlmNetworkError.new(
-          "OpenAI API connection error: #{error.message}",
-          network_exception: error
-        )
-      when defined?(OpenAI::InvalidRequestError) && OpenAI::InvalidRequestError
-        Errors::LlmInvalidRequestError.new(
-          "Invalid request to OpenAI API: #{error.message}",
-          response: error.respond_to?(:response) ? error.response&.to_h : nil
-        )
-      when defined?(OpenAI::APIError) && OpenAI::APIError
-        Errors::LlmServerError.new(
-          "OpenAI API server error: #{error.message}",
-          response: error.respond_to?(:response) ? error.response&.to_h : nil
-        )
-      when defined?(OpenAI::Timeout) && OpenAI::Timeout
-        Errors::LlmTimeoutError.new("OpenAI API request timed out: #{error.message}")
-      when defined?(Faraday::TimeoutError) && Faraday::TimeoutError
-        Errors::LlmTimeoutError.new("OpenAI API request timed out: #{error.message}")
-      when defined?(Faraday::ConnectionFailed) && Faraday::ConnectionFailed
-        Errors::LlmNetworkError.new(
-          "OpenAI API connection error: #{error.message}",
-          network_exception: error
-        )
-      when defined?(Faraday::Error) && Faraday::Error
-        status = error.respond_to?(:response_status) ? error.response_status : nil
-        headers = error.respond_to?(:response_headers) ? (error.response_headers || {}) : {}
-        response = (error.respond_to?(:response) && error.response.is_a?(Hash)) ? error.response : nil
+      when Faraday::TimeoutError
+        Errors::LlmTimeoutError.new("LLM API request timed out: #{error.message}")
+      when Faraday::ConnectionFailed
+        Errors::LlmNetworkError.new("LLM API connection error: #{error.message}", network_exception: error)
+      else
+        status = error.response_status
+        headers = error.response_headers || {}
+        response = error.response.is_a?(Hash) ? error.response : nil
 
         case status
         when 429
           Errors::LlmRateLimitError.new(
-            "OpenAI API rate limit exceeded: #{error.message}",
+            "LLM API rate limit exceeded: #{error.message}",
             retry_after: headers["retry-after"]&.to_i,
             response: response
           )
         when 401, 403
-          Errors::LlmAuthenticationError.new("OpenAI API authentication error: #{error.message}", response: response)
+          Errors::LlmAuthenticationError.new("LLM API authentication error: #{error.message}", response: response)
         when 400, 404, 422
-          Errors::LlmInvalidRequestError.new("Invalid request to OpenAI API: #{error.message}", response: response)
+          Errors::LlmInvalidRequestError.new("Invalid request to LLM API: #{error.message}", response: response)
         when 500..599
-          Errors::LlmServerError.new("OpenAI API server error: #{error.message}", response: response)
+          Errors::LlmServerError.new("LLM API server error: #{error.message}", response: response)
         else
-          Errors::LlmNetworkError.new("OpenAI API connection error: #{error.message}", network_exception: error)
+          Errors::LlmNetworkError.new("LLM API connection error: #{error.message}", network_exception: error)
         end
-      when OpenAI::Error
-        # Parse error message to determine specific error type
-        message = error.message.to_s.downcase
-
-        if message.include?("rate limit") || message.include?("429")
-          retry_after = error.respond_to?(:response) ? error.response&.headers&.[]("retry-after")&.to_i : nil
-          Errors::LlmRateLimitError.new(
-            "OpenAI API rate limit exceeded: #{error.message}",
-            retry_after: retry_after,
-            response: error.respond_to?(:response) ? error.response&.to_h : nil
-          )
-        elsif message.include?("timeout") || message.include?("timed out")
-          Errors::LlmTimeoutError.new("OpenAI API request timed out: #{error.message}")
-        elsif message.include?("connection") || message.include?("network")
-          Errors::LlmNetworkError.new(
-            "OpenAI API connection error: #{error.message}",
-            network_exception: error
-          )
-        elsif message.include?("invalid") || message.include?("400")
-          Errors::LlmInvalidRequestError.new(
-            "Invalid request to OpenAI API: #{error.message}",
-            response: error.respond_to?(:response) ? error.response&.to_h : nil
-          )
-        elsif message.include?("server") || message.match?(/5\d\d/)
-          Errors::LlmServerError.new(
-            "OpenAI API server error: #{error.message}",
-            response: error.respond_to?(:response) ? error.response&.to_h : nil
-          )
-        else
-          Errors::LlmError.new(
-            "OpenAI API error: #{error.message}",
-            response: error.respond_to?(:response) ? error.response&.to_h : nil
-          )
-        end
-      else
-        Errors::LlmError.new(
-          "Unexpected error: #{error.message}",
-          context: {error_class: error.class.name}
-        )
       end
     end
 
@@ -372,7 +322,7 @@ module Agentic
     def stream_structured_response(parameters, output_schema, stream_callback)
       accumulated_content = ""
 
-      # Stream the response using ruby-openai
+      # Stream the response through the RubyLLM adapter
       response = client.chat(
         parameters: parameters.merge(
           stream: proc do |chunk, _bytesize|

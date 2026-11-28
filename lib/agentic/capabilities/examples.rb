@@ -59,9 +59,9 @@ module Agentic
               client = Agentic.client(llm_config)
 
               # Generate text
-              response = client.complete(prompt: inputs[:prompt])
+              response = client.complete([{role: "user", content: inputs[:prompt]}])
 
-              {response: response.to_s}
+              {response: response.content.to_s}
             end
           )
 

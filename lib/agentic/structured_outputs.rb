@@ -1,6 +1,5 @@
 require "json"
 require "dry/schema"
-require "openai"
 require "ostruct"
 
 # Credit: https://github.com/alexrudall/ruby-openai/issues/508#issuecomment-2291916913

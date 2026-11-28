@@ -54,6 +54,33 @@ RSpec.describe Agentic::LegacyConfiguration do
     end
   end
 
+  describe "#llm_backend" do
+    it "defaults to :ruby_llm" do
+      config = nil
+      without_env("AGENTIC_LLM_BACKEND") { config = described_class.new }
+      expect(config.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "accepts :ruby_llm as a string or symbol" do
+      config = fresh_configuration
+      config.llm_backend = " Ruby_LLM "
+      expect(config.llm_backend).to eq(:ruby_llm)
+    end
+
+    it "rejects unknown backends" do
+      config = fresh_configuration
+      expect { config.llm_backend = "anthropic" }
+        .to raise_error(Agentic::Errors::ConfigurationError, /Unknown llm_backend/)
+    end
+
+    it "still accepts :openai but warns that it is deprecated" do
+      config = fresh_configuration
+      expect(Agentic.logger).to receive(:warn).with(/llm_backend :openai is deprecated/)
+      config.llm_backend = :openai
+      expect(config.llm_backend).to eq(:openai)
+    end
+  end
+
   describe "LlmClient fail-fast" do
     it "raises at construction when unconfigured, not at request time" do
       Agentic.instance_variable_set(:@configuration, fresh_configuration)
@@ -70,7 +97,8 @@ RSpec.describe Agentic::LegacyConfiguration do
       )
 
       client = Agentic::LlmClient.new(Agentic::LlmConfig.new)
-      expect(client.client).to be_a(OpenAI::Client)
+      expect(client.client).to be_a(Agentic::RubyLlmAdapter)
+      expect(client.client.instance_variable_get(:@context).config.openai_api_key).to eq("local")
     end
   end
 end
